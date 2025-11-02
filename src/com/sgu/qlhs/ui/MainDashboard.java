@@ -51,6 +51,12 @@ public class MainDashboard extends JFrame {
         buildUI();
     }
 
+    // Expose the logged-in user to child panels/dialogs so they can
+    // enforce role-based behavior (e.g. teacher-scoped views).
+    public NguoiDungDTO getNguoiDung() {
+        return this.nguoiDung;
+    }
+
     private void buildUI() {
         var root = new JPanel(new BorderLayout());
         root.setBackground(PAGE_BG);
@@ -69,8 +75,7 @@ public class MainDashboard extends JFrame {
         var lblUser = label(
                 nguoiDung != null ? nguoiDung.getHoTen() + " (" + nguoiDung.getVaiTro() + ")" : "Khách",
                 15f,
-                TEXT_WHITE
-        );
+                TEXT_WHITE);
         lblUser.setBorder(new EmptyBorder(6, 8, 6, 8));
         lblUser.setAlignmentX(Component.LEFT_ALIGNMENT);
 

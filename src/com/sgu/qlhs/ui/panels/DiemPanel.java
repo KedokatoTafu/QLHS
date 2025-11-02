@@ -14,6 +14,11 @@ import com.sgu.qlhs.bus.LopBUS;
 import com.sgu.qlhs.bus.MonBUS;
 import com.sgu.qlhs.bus.NienKhoaBUS;
 import com.sgu.qlhs.bus.HanhKiemBUS;
+import com.sgu.qlhs.bus.ThoiKhoaBieuBUS;
+import com.sgu.qlhs.DatabaseConnection;
+import com.sgu.qlhs.dto.NguoiDungDTO;
+import com.sgu.qlhs.bus.HocSinhBUS;
+import com.sgu.qlhs.dto.HocSinhDTO;
 import com.sgu.qlhs.dto.LopDTO;
 import com.sgu.qlhs.dto.MonHocDTO;
 import javax.swing.*;
@@ -26,7 +31,7 @@ import java.util.regex.Pattern;
 import java.awt.*;
 import java.util.List;
 import java.util.Locale;
-import java.util.Vector;
+// import java.util.Vector; (unused)
 import static com.sgu.qlhs.ui.MainDashboard.*;
 
 public class DiemPanel extends JPanel {
@@ -41,8 +46,13 @@ public class DiemPanel extends JPanel {
     private final JTable table;
     private final TableRowSorter<DefaultTableModel> sorter;
     private final HanhKiemBUS hanhKiemBUS = new HanhKiemBUS();
+    private final ThoiKhoaBieuBUS tkbBUS = new ThoiKhoaBieuBUS(DatabaseConnection.getConnection());
+    private final HocSinhBUS hocSinhBUS = new HocSinhBUS();
     private List<LopDTO> lopList;
     private List<MonHocDTO> monList;
+    // student view flags
+    private boolean isStudentView = false;
+    private int currentStudentMaHS = -1;
     // keep last fetched rows so popup actions can map table rows to DTOs
     private java.util.List<com.sgu.qlhs.dto.DiemDTO> currentRows = new java.util.ArrayList<>();
     // pagination
@@ -244,10 +254,28 @@ public class DiemPanel extends JPanel {
         popup.add(miEdit);
         popup.add(miDelete);
 
-        table.setComponentPopupMenu(popup);
+        // Attach popup only for non-student users (students have read-only view)
+        boolean attachPopup = true;
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                    isStudentView = true;
+                    currentStudentMaHS = nd.getId(); // assume mapping NguoiDung.id -> HocSinh.MaHS
+                    attachPopup = false;
+                }
+            }
+        } catch (Exception ex) {
+            // ignore and attach popup as fallback
+        }
 
-        miDelete.addActionListener(e -> doDeleteSelectedRows());
-        miEdit.addActionListener(e -> doEditSelectedRow());
+        if (attachPopup) {
+            table.setComponentPopupMenu(popup);
+            miDelete.addActionListener(e -> doDeleteSelectedRows());
+            miEdit.addActionListener(e -> doEditSelectedRow());
+        }
 
         btnPrev.addActionListener(e -> {
             if (currentPage > 0) {
@@ -264,6 +292,41 @@ public class DiemPanel extends JPanel {
     private void loadLopOptions() {
         cboLop.removeAllItems();
         cboLop.addItem("-- Tất cả --");
+        // If the running user is a teacher, restrict classes to those they teach.
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                    // assume NguoiDung.id maps to MaGV
+                    java.util.List<String> ds = tkbBUS.getDistinctLopByGiaoVien(nd.getId());
+                    for (String tenLop : ds)
+                        cboLop.addItem(tenLop);
+                    return;
+                }
+                // if student, show only their class and disable selection
+                if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                    isStudentView = true;
+                    currentStudentMaHS = nd.getId();
+                    HocSinhDTO hs = hocSinhBUS.getHocSinhByMaHS(currentStudentMaHS);
+                    String tenLop = hs != null && hs.getTenLop() != null ? hs.getTenLop() : "-- Tất cả --";
+                    cboLop.removeAllItems();
+                    cboLop.addItem(tenLop);
+                    cboLop.setSelectedIndex(0);
+                    cboLop.setEnabled(false);
+                    // hide/disable subject search for students
+                    cboMon.setEnabled(false);
+                    txtSearch.setEnabled(false);
+                    return;
+                }
+            }
+        } catch (Exception ex) {
+            // if any issue, fallback to showing all classes
+            System.err.println("Lỗi lấy lớp theo giáo viên: " + ex.getMessage());
+        }
+
+        // fallback: show all classes
         lopList = lopBUS.getAllLop();
         for (LopDTO l : lopList) {
             cboLop.addItem(l.getTenLop());
@@ -301,12 +364,26 @@ public class DiemPanel extends JPanel {
         }
 
         // pagination: fetch pageSize+1 rows to detect next page
-        int fetchSize = pageSize + 1;
-        List<com.sgu.qlhs.dto.DiemDTO> rows = diemBUS.getDiemFiltered(maLop, maMon, hocKy, maNK, fetchSize,
-                currentPage * pageSize);
-        boolean hasNext = rows.size() > pageSize;
-        if (hasNext) {
-            rows = new java.util.ArrayList<>(rows.subList(0, pageSize));
+        List<com.sgu.qlhs.dto.DiemDTO> rows;
+        boolean hasNext = false;
+        if (isStudentView) {
+            // student view: only fetch this student's records (may be both HK1/HK2)
+            rows = new java.util.ArrayList<>();
+            if (hocKy != null && hocKy > 0) {
+                rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, hocKy, maNK));
+            } else {
+                rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, 1, maNK));
+                rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, 2, maNK));
+            }
+            // no pagination for single student view
+            hasNext = false;
+        } else {
+            int fetchSize = pageSize + 1;
+            rows = diemBUS.getDiemFiltered(maLop, maMon, hocKy, maNK, fetchSize, currentPage * pageSize);
+            hasNext = rows.size() > pageSize;
+            if (hasNext) {
+                rows = new java.util.ArrayList<>(rows.subList(0, pageSize));
+            }
         }
         currentRows.clear();
         currentRows.addAll(rows);
@@ -399,7 +476,25 @@ public class DiemPanel extends JPanel {
                 continue;
             var dto = currentRows.get(modelRow);
             try {
-                diemBUS.deleteDiem(dto.getMaHS(), dto.getMaMon(), dto.getHocKy(), maNK);
+                // resolve current user from MainDashboard (if available) to enforce server-side
+                // checks
+                NguoiDungDTO nd = null;
+                try {
+                    java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                    if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                        com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                        nd = md.getNguoiDung();
+                    }
+                } catch (Exception ex) {
+                    // ignore
+                }
+
+                boolean ok = diemBUS.deleteDiem(dto.getMaHS(), dto.getMaMon(), dto.getHocKy(), maNK, nd);
+                if (!ok) {
+                    JOptionPane.showMessageDialog(this, "Bạn không có quyền xóa điểm này.", "Không có quyền",
+                            JOptionPane.WARNING_MESSAGE);
+                    continue;
+                }
             } catch (Exception ex) {
                 System.err.println("Lỗi khi xóa: " + ex.getMessage());
             }

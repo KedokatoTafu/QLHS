@@ -161,6 +161,19 @@ public class DiemNhapDialog extends JDialog {
             if (selNk >= 0 && selNk < nienKhoaIds.size())
                 maNK = nienKhoaIds.get(selNk);
 
+            // resolve current user (if dialog owned by MainDashboard)
+            com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
+
+            int failedSave = 0;
             for (int r = 0; r < model.getRowCount(); r++) {
                 Object idObj = model.getValueAt(r, 0);
                 if (idObj == null)
@@ -178,11 +191,18 @@ public class DiemNhapDialog extends JDialog {
                 double gk = valueToDouble(model.getValueAt(r, 4));
                 double ck = valueToDouble(model.getValueAt(r, 5));
 
-                // Call BUS to save the record (delegates to DAO internally)
-                diemBUS.saveOrUpdateDiem(maHS, maMon, hocKy, maNK, mieng, p15, gk, ck);
+                // Call BUS to save the record (delegates to DAO internally) with permission
+                // check
+                boolean ok = diemBUS.saveOrUpdateDiem(maHS, maMon, hocKy, maNK, mieng, p15, gk, ck, nd);
+                if (!ok)
+                    failedSave++;
             }
-
-            JOptionPane.showMessageDialog(this, "Lưu điểm xong");
+            if (failedSave > 0) {
+                JOptionPane.showMessageDialog(this, "Một số hàng không được lưu do thiếu quyền.", "Chú ý",
+                        JOptionPane.WARNING_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this, "Lưu điểm xong");
+            }
             dispose();
         });
         btnClose.addActionListener((java.awt.event.ActionEvent __) -> {
@@ -215,6 +235,19 @@ public class DiemNhapDialog extends JDialog {
             if (confirm != JOptionPane.YES_OPTION)
                 return;
 
+            // resolve current user for permission checks
+            com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
+
+            int failedDelete = 0;
             for (int r : sels) {
                 int modelRow = tbl.convertRowIndexToModel(r);
                 Object idObj = model.getValueAt(modelRow, 0);
@@ -226,14 +259,23 @@ public class DiemNhapDialog extends JDialog {
                 } catch (NumberFormatException ex) {
                     continue;
                 }
-                diemBUS.deleteDiem(maHS, maMon, hocKy, maNK);
+                boolean ok = diemBUS.deleteDiem(maHS, maMon, hocKy, maNK, nd);
+                if (!ok) {
+                    failedDelete++;
+                    continue;
+                }
                 // clear cells
                 model.setValueAt(null, modelRow, 2);
                 model.setValueAt(null, modelRow, 3);
                 model.setValueAt(null, modelRow, 4);
                 model.setValueAt(null, modelRow, 5);
             }
-            JOptionPane.showMessageDialog(this, "Xóa xong");
+            if (failedDelete > 0) {
+                JOptionPane.showMessageDialog(this, "Một số hàng không được xóa do thiếu quyền.", "Chú ý",
+                        JOptionPane.WARNING_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this, "Xóa xong");
+            }
         });
         btnPane.add(btnClose);
         btnPane.add(btnDelete);

@@ -113,6 +113,19 @@ public class DiemTinhXepLoaiDialog extends JDialog {
                 monMap.put(m.getTenMon(), m.getMaMon());
             Integer maMonObj = monMap.get((String) cboMon.getSelectedItem());
             int maMon = maMonObj == null ? 1 : maMonObj;
+            // resolve current user for permission checks
+            com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
+
+            int failed = 0;
             for (int r = 0; r < model.getRowCount(); r++) {
                 Object idObj = model.getValueAt(r, 0);
                 if (idObj == null)
@@ -127,9 +140,16 @@ public class DiemTinhXepLoaiDialog extends JDialog {
                 double p15 = val(model.getValueAt(r, 3));
                 double gk = val(model.getValueAt(r, 4));
                 double ck = val(model.getValueAt(r, 5));
-                diemBUS.saveOrUpdateDiem(maHS, maMon, hocKy, maNK, mieng, p15, gk, ck);
+                boolean ok = diemBUS.saveOrUpdateDiem(maHS, maMon, hocKy, maNK, mieng, p15, gk, ck, nd);
+                if (!ok)
+                    failed++;
             }
-            JOptionPane.showMessageDialog(this, "Đã lưu kết quả");
+            if (failed > 0) {
+                JOptionPane.showMessageDialog(this, "Một số hàng không được lưu do thiếu quyền.", "Chú ý",
+                        JOptionPane.WARNING_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this, "Đã lưu kết quả");
+            }
             dispose();
         });
         btnClose.addActionListener((java.awt.event.ActionEvent __) -> {

@@ -1,6 +1,12 @@
 package com.sgu.qlhs.bus;
 
 import com.sgu.qlhs.dto.DiemDTO;
+import com.sgu.qlhs.dto.NguoiDungDTO;
+import com.sgu.qlhs.DatabaseConnection;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import com.sgu.qlhs.database.DiemDAO;
 import java.util.ArrayList;
 import java.util.List;
@@ -100,6 +106,30 @@ public class DiemBUS {
         dao.upsertNhanXet(maHS, maNK, hocKy, ghiChu);
     }
 
+    /**
+     * Save teacher comment with permission check. Returns true if saved.
+     */
+    public boolean saveNhanXet(int maHS, int maNK, int hocKy, String ghiChu, NguoiDungDTO user) {
+        // if user is teacher, ensure they are assigned to the student's class in this
+        // NK/HK
+        if (user != null && "giao_vien".equalsIgnoreCase(user.getVaiTro())) {
+            try {
+                if (!isTeacherAssigned(user.getId(), maHS, null, hocKy, maNK))
+                    return false;
+            } catch (Exception ex) {
+                System.err.println("Lỗi kiểm tra quyền trước khi lưu nhận xét: " + ex.getMessage());
+                return false;
+            }
+        }
+        try {
+            dao.upsertNhanXet(maHS, maNK, hocKy, ghiChu);
+            return true;
+        } catch (Exception ex) {
+            System.err.println("Lỗi khi lưu nhận xét: " + ex.getMessage());
+            return false;
+        }
+    }
+
     // Thin write facade that delegates to DAO. Keeps Presentation layer unaware of
     // DAO.
     public void saveDiem(int maHS, int maMon, int hocKy, int maNK, double mieng, double p15, double gk, double ck) {
@@ -115,6 +145,30 @@ public class DiemBUS {
     }
 
     /**
+     * Save or update diem with permission check. Returns true if saved.
+     */
+    public boolean saveOrUpdateDiem(int maHS, int maMon, int hocKy, int maNK, double mieng, double p15, double gk,
+            double ck, NguoiDungDTO user) {
+        // If user is teacher, verify assignment
+        if (user != null && "giao_vien".equalsIgnoreCase(user.getVaiTro())) {
+            try {
+                if (!isTeacherAssigned(user.getId(), maHS, maMon, hocKy, maNK))
+                    return false;
+            } catch (Exception ex) {
+                System.err.println("Lỗi kiểm tra quyền trước khi lưu điểm: " + ex.getMessage());
+                return false;
+            }
+        }
+        try {
+            dao.upsertDiem(maHS, maMon, hocKy, maNK, mieng, p15, gk, ck);
+            return true;
+        } catch (Exception ex) {
+            System.err.println("Lỗi khi lưu điểm: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Save or update diem and teacher note (ghiChu).
      */
     public void saveOrUpdateDiem(int maHS, int maMon, int hocKy, int maNK, double mieng, double p15, double gk,
@@ -122,8 +176,83 @@ public class DiemBUS {
         dao.upsertDiemWithNote(maHS, maMon, hocKy, maNK, mieng, p15, gk, ck, ghiChu);
     }
 
+    /**
+     * Save or update diem with note and permission check. Returns true if saved.
+     */
+    public boolean saveOrUpdateDiem(int maHS, int maMon, int hocKy, int maNK, double mieng, double p15, double gk,
+            double ck, String ghiChu, NguoiDungDTO user) {
+        if (user != null && "giao_vien".equalsIgnoreCase(user.getVaiTro())) {
+            try {
+                if (!isTeacherAssigned(user.getId(), maHS, maMon, hocKy, maNK))
+                    return false;
+            } catch (Exception ex) {
+                System.err.println("Lỗi kiểm tra quyền trước khi lưu điểm (ghi chú): " + ex.getMessage());
+                return false;
+            }
+        }
+        try {
+            dao.upsertDiemWithNote(maHS, maMon, hocKy, maNK, mieng, p15, gk, ck, ghiChu);
+            return true;
+        } catch (Exception ex) {
+            System.err.println("Lỗi khi lưu điểm (with note): " + ex.getMessage());
+            return false;
+        }
+    }
+
     public void deleteDiem(int maHS, int maMon, int hocKy, int maNK) {
         dao.deleteDiem(maHS, maMon, hocKy, maNK);
+    }
+
+    /**
+     * Delete diem with permission check. Returns true if deleted.
+     */
+    public boolean deleteDiem(int maHS, int maMon, int hocKy, int maNK, NguoiDungDTO user) {
+        if (user != null && "giao_vien".equalsIgnoreCase(user.getVaiTro())) {
+            try {
+                if (!isTeacherAssigned(user.getId(), maHS, maMon, hocKy, maNK))
+                    return false;
+            } catch (Exception ex) {
+                System.err.println("Lỗi kiểm tra quyền trước khi xóa điểm: " + ex.getMessage());
+                return false;
+            }
+        }
+        try {
+            dao.deleteDiem(maHS, maMon, hocKy, maNK);
+            return true;
+        } catch (Exception ex) {
+            System.err.println("Lỗi khi xóa điểm: " + ex.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Helper: check whether a teacher (maGV) is assigned to teach the class of maHS
+     * for the given niên khóa (maNK) and học kỳ (hocKy).
+     * If maMon is not null, also require teacher assigned for that subject.
+     */
+    private boolean isTeacherAssigned(int maGV, int maHS, Integer maMon, int hocKy, int maNK) throws SQLException {
+        String sql = "SELECT COUNT(*) AS cnt FROM PhanCongDay pc JOIN HocSinh hs ON hs.MaLop = pc.MaLop "
+                + "WHERE pc.MaGV = ? AND pc.MaNK = ? AND pc.HocKy = ? AND hs.MaHS = ?";
+        if (maMon != null) {
+            sql += " AND pc.MaMon = ?";
+        }
+        try (Connection conn = DatabaseConnection.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            int idx = 1;
+            ps.setInt(idx++, maGV);
+            ps.setInt(idx++, maNK);
+            ps.setInt(idx++, hocKy);
+            ps.setInt(idx++, maHS);
+            if (maMon != null) {
+                ps.setInt(idx++, maMon);
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getInt("cnt") > 0;
+                }
+            }
+        }
+        return false;
     }
 
     public List<DiemDTO> getDiemFiltered(Integer maLop, Integer maMon, Integer hocKy, Integer maNK,

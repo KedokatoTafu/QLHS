@@ -630,6 +630,17 @@ public class BangDiemChiTietDialog extends JDialog {
             return false;
         }
         try {
+            // resolve current user for permission checks
+            com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
             // validation: ensure all editable score cells are numeric and between 0 and 10
             java.util.List<String> invalids = new java.util.ArrayList<>();
             for (int i = 0; i < model.getRowCount(); i++) {
@@ -659,6 +670,7 @@ public class BangDiemChiTietDialog extends JDialog {
             }
 
             // iterate rows and persist updated scores
+            int failed = 0;
             for (int i = 0; i < model.getRowCount(); i++) {
                 // get maMon from the loaded currentDiemList (model shows name but DTO holds id)
                 int maMonId = currentDiemList.size() > i ? currentDiemList.get(i).getMaMon() : -1;
@@ -676,8 +688,10 @@ public class BangDiemChiTietDialog extends JDialog {
                     ghiChu = note.toString();
 
                 // delegate to BUS method that performs upsert and persists ghiChu
-                diemBUS.saveOrUpdateDiem(currentMaHS, maMonId, currentHocKy, currentMaNK, mieng, p15, giuaky,
-                        cuoiky, ghiChu);
+                boolean ok = diemBUS.saveOrUpdateDiem(currentMaHS, maMonId, currentHocKy, currentMaNK, mieng, p15,
+                        giuaky, cuoiky, ghiChu, nd);
+                if (!ok)
+                    failed++;
             }
 
             // persist Hạnh kiểm if the inline editor was shown/used
@@ -704,13 +718,21 @@ public class BangDiemChiTietDialog extends JDialog {
             try {
                 if (txtNhanXet != null) {
                     String nxText = txtNhanXet.getText();
-                    diemBUS.saveNhanXet(currentMaHS, currentMaNK, currentHocKy, nxText != null ? nxText : "");
+                    boolean okNx = diemBUS.saveNhanXet(currentMaHS, currentMaNK, currentHocKy,
+                            nxText != null ? nxText : "", nd);
+                    if (!okNx)
+                        System.err.println("Không có quyền lưu nhận xét cho HS=" + currentMaHS);
                 }
             } catch (Exception ex) {
                 System.err.println("Lỗi khi lưu nhận xét: " + ex.getMessage());
             }
-            JOptionPane.showMessageDialog(this, "Lưu bảng điểm thành công.", "Thành công",
-                    JOptionPane.INFORMATION_MESSAGE);
+            if (failed > 0) {
+                JOptionPane.showMessageDialog(this, "Một số mục không được lưu do thiếu quyền.", "Chú ý",
+                        JOptionPane.WARNING_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this, "Lưu bảng điểm thành công.", "Thành công",
+                        JOptionPane.INFORMATION_MESSAGE);
+            }
             tableEditing = false;
             loadBangDiem();
             return true;

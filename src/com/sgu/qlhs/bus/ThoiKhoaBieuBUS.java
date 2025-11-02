@@ -37,7 +37,8 @@ public class ThoiKhoaBieuBUS {
         try {
             // Kiểm tra logic & trùng lặp
             String msg = validateConflict(tkb);
-            if (msg != null) return msg;
+            if (msg != null)
+                return msg;
 
             int id = dao.insert(tkb);
             return (id > 0)
@@ -54,13 +55,19 @@ public class ThoiKhoaBieuBUS {
         return dao.getDistinctLop();
     }
 
+    // Lấy danh sách tên lớp mà một giáo viên (MaGV) đang dạy
+    public List<String> getDistinctLopByGiaoVien(int maGV) throws SQLException {
+        return dao.getDistinctLopByGiaoVien(maGV);
+    }
+
     // ===== Lấy mã lớp theo tên lớp =====
     public int getMaLopByTen(String tenLop) throws SQLException {
         return dao.getMaLopByTen(tenLop);
     }
 
     /**
-     * Kiểm tra xung đột thời khóa biểu theo lớp, GV, phòng, tiết, thứ, học kỳ, năm học.
+     * Kiểm tra xung đột thời khóa biểu theo lớp, GV, phòng, tiết, thứ, học kỳ, năm
+     * học.
      * Trả về null nếu hợp lệ; trả về thông báo lỗi nếu trùng.
      */
     private String validateConflict(ThoiKhoaBieuDTO tkb) throws SQLException {
@@ -76,12 +83,15 @@ public class ThoiKhoaBieuBUS {
 
         // ===== 2. Lấy toàn bộ TKB cùng năm học + học kỳ =====
         List<ThoiKhoaBieuDTO> ds = dao.findByNamHocHocKy(tkb.getNamHoc(), tkb.getHocKy());
-        if (ds == null) return null;
+        if (ds == null)
+            return null;
 
         // ===== 3. Kiểm tra trùng lớp / giáo viên / phòng =====
         for (ThoiKhoaBieuDTO t : ds) {
-            if (tkb.getMaTKB() != 0 && tkb.getMaTKB() == t.getMaTKB()) continue;
-            if (!t.getThuTrongTuan().equalsIgnoreCase(tkb.getThuTrongTuan())) continue;
+            if (tkb.getMaTKB() != 0 && tkb.getMaTKB() == t.getMaTKB())
+                continue;
+            if (!t.getThuTrongTuan().equalsIgnoreCase(tkb.getThuTrongTuan()))
+                continue;
 
             // Kiểm tra giao tiết (overlap)
             boolean overlap = !(tkb.getTietKetThuc() < t.getTietBatDau()
@@ -112,10 +122,11 @@ public class ThoiKhoaBieuBUS {
         // ===== 4. Không có trùng =====
         return null;
     }
-    
+
     public int deleteTKB(int maTKB) throws SQLException {
         return dao.delete(maTKB);
     }
+
     public int restoreTKB(int maTKB) throws SQLException {
         return dao.restore(maTKB);
     }
@@ -123,14 +134,17 @@ public class ThoiKhoaBieuBUS {
     public List<ThoiKhoaBieuDTO> findDeletedByLopHocKy(int maLop, String hocKy) throws SQLException {
         return dao.findByLopHocKy(maLop, hocKy, false); // false = lấy các bản ghi TrangThai=0
     }
- // ===== Cập nhật thời khóa biểu =====
+
+    // ===== Cập nhật thời khóa biểu =====
     public String updateTKB(ThoiKhoaBieuDTO tkb) {
         try {
-            if (tkb.getMaTKB() <= 0) return "❌ Thiếu MaTKB để cập nhật!";
+            if (tkb.getMaTKB() <= 0)
+                return "❌ Thiếu MaTKB để cập nhật!";
 
             // dùng cùng validator với thêm mới; validator đã bỏ qua chính MaTKB khi so sánh
             String msg = validateConflict(tkb);
-            if (msg != null) return msg;
+            if (msg != null)
+                return msg;
 
             int rows = dao.update(tkb);
             return (rows > 0)
@@ -141,6 +155,7 @@ public class ThoiKhoaBieuBUS {
             return "❌ Lỗi khi cập nhật thời khóa biểu: " + e.getMessage();
         }
     }
+
     public void exportToCSV(List<ThoiKhoaBieuDTO> list, File file) throws IOException {
         try (PrintWriter writer = new PrintWriter(file, StandardCharsets.UTF_8)) {
             writer.println("MaTKB,MaLop,MaGV,MaMon,MaPhong,HocKy,NamHoc,ThuTrongTuan,TietBatDau,TietKetThuc,TrangThai");
@@ -155,23 +170,25 @@ public class ThoiKhoaBieuBUS {
 
     public List<ThoiKhoaBieuDTO> importFromCSV(File file) throws IOException {
         List<ThoiKhoaBieuDTO> list = new ArrayList<>();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
             String line;
             reader.readLine(); // bỏ dòng tiêu đề
             while ((line = reader.readLine()) != null) {
                 String[] p = line.split(",");
-                if (p.length < 11) continue;
+                if (p.length < 11)
+                    continue;
                 ThoiKhoaBieuDTO tkb = new ThoiKhoaBieuDTO(
                         Integer.parseInt(p[0]), Integer.parseInt(p[1]), Integer.parseInt(p[2]),
                         Integer.parseInt(p[3]), Integer.parseInt(p[4]),
                         p[5], p[6], p[7], Integer.parseInt(p[8]), Integer.parseInt(p[9]),
-                        Integer.parseInt(p[10])
-                );
+                        Integer.parseInt(p[10]));
                 list.add(tkb);
             }
         }
         return list;
     }
+
     public int addThoiKhoaBieu(ThoiKhoaBieuDTO dto) throws SQLException {
         return dao.insert(dto); // gọi thẳng xuống DAO
     }

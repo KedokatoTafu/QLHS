@@ -138,7 +138,6 @@ CREATE TABLE Diem (
     Diem15p DECIMAL(3, 1),
     DiemGiuaKy DECIMAL(3, 1),
     DiemCuoiKy DECIMAL(3, 1),
-    GhiChu TEXT DEFAULT NULL,
     CONSTRAINT fk_diem_hs FOREIGN KEY (MaHS) REFERENCES HocSinh (MaHS) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_diem_mon FOREIGN KEY (MaMon) REFERENCES MonHoc (MaMon) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_diem_nk FOREIGN KEY (MaNK) REFERENCES NienKhoa (MaNK) ON DELETE CASCADE ON UPDATE CASCADE,
@@ -210,90 +209,6 @@ CREATE TABLE HanhKiem (
     CONSTRAINT fk_hk_nk FOREIGN KEY (MaNK) REFERENCES NienKhoa (MaNK) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT uq_hanhkiem UNIQUE (MaHS, MaNK, HocKy) -- Mỗi học sinh chỉ có 1 bản ghi hạnh kiểm mỗi HK
 );
--- Thêm dữ liệu mẫu hạnh kiểm
-INSERT INTO
-    HanhKiem (
-        MaHS,
-        MaNK,
-        HocKy,
-        XepLoai,
-        GhiChu
-    )
-VALUES
-    -- Lớp 10A1
-    (
-        1,
-        1,
-        1,
-        'Tốt',
-        'Tích cực trong học tập và sinh hoạt.'
-    ),
-    (
-        1,
-        1,
-        2,
-        'Tốt',
-        'Giữ vững phong độ.'
-    ),
-    (
-        2,
-        1,
-        1,
-        'Khá',
-        'Đôi khi còn nói chuyện riêng.'
-    ),
-    (
-        2,
-        1,
-        2,
-        'Tốt',
-        'Tiến bộ rõ rệt.'
-    ),
-    -- Lớp 11A1
-    (
-        3,
-        1,
-        1,
-        'Trung bình',
-        'Thiếu tập trung.'
-    ),
-    (
-        3,
-        1,
-        2,
-        'Khá',
-        'Đã cải thiện tốt.'
-    ),
-    -- Lớp 12A1
-    (
-        4,
-        1,
-        1,
-        'Khá',
-        'Gương mẫu trong lớp.'
-    ),
-    (
-        4,
-        1,
-        2,
-        'Tốt',
-        'Tham gia tích cực các hoạt động.'
-    ),
-    -- Lớp 12A1 (HS khác)
-    (
-        5,
-        1,
-        1,
-        'Yếu',
-        'Thường xuyên đi trễ.'
-    ),
-    (
-        5,
-        1,
-        2,
-        'Trung bình',
-        'Đã cố gắng hơn.'
-    );
 
 INSERT INTO
     PhongHoc (
@@ -8959,6 +8874,91 @@ VALUES
         2
     );
 
+-- Thêm dữ liệu mẫu hạnh kiểm
+INSERT INTO
+    HanhKiem (
+        MaHS,
+        MaNK,
+        HocKy,
+        XepLoai,
+        GhiChu
+    )
+VALUES
+    -- Lớp 10A1
+    (
+        1,
+        1,
+        1,
+        'Tốt',
+        'Tích cực trong học tập và sinh hoạt.'
+    ),
+    (
+        1,
+        1,
+        2,
+        'Tốt',
+        'Giữ vững phong độ.'
+    ),
+    (
+        2,
+        1,
+        1,
+        'Khá',
+        'Đôi khi còn nói chuyện riêng.'
+    ),
+    (
+        2,
+        1,
+        2,
+        'Tốt',
+        'Tiến bộ rõ rệt.'
+    ),
+    -- Lớp 11A1
+    (
+        3,
+        1,
+        1,
+        'Trung bình',
+        'Thiếu tập trung.'
+    ),
+    (
+        3,
+        1,
+        2,
+        'Khá',
+        'Đã cải thiện tốt.'
+    ),
+    -- Lớp 12A1
+    (
+        4,
+        1,
+        1,
+        'Khá',
+        'Gương mẫu trong lớp.'
+    ),
+    (
+        4,
+        1,
+        2,
+        'Tốt',
+        'Tham gia tích cực các hoạt động.'
+    ),
+    -- Lớp 12A1 (HS khác)
+    (
+        5,
+        1,
+        1,
+        'Yếu',
+        'Thường xuyên đi trễ.'
+    ),
+    (
+        5,
+        1,
+        2,
+        'Trung bình',
+        'Đã cố gắng hơn.'
+    );
+
 INSERT INTO
     PhanCongDay (
         MaGV,
@@ -9221,3 +9221,90 @@ CREATE TABLE DiemNhanXet (
     CONSTRAINT fk_nx_hs FOREIGN KEY (MaHS) REFERENCES HocSinh (MaHS) ON DELETE CASCADE ON UPDATE CASCADE,
     CONSTRAINT fk_nx_nk FOREIGN KEY (MaNK) REFERENCES NienKhoa (MaNK) ON DELETE CASCADE ON UPDATE CASCADE
 );
+
+-- CREATE TABLE nguoidung (
+--     id INT AUTO_INCREMENT PRIMARY KEY,
+--     ten_dang_nhap VARCHAR(50) NOT NULL UNIQUE,
+--     mat_khau VARCHAR(255) NOT NULL,
+--     ho_ten VARCHAR(100),
+--     vai_tro ENUM('quan_tri_vien', 'giao_vien', 'hoc_sinh') NOT NULL
+-- );
+
+-- INSERT INTO nguoidung (ten_dang_nhap, mat_khau, ho_ten, vai_tro)
+-- VALUES
+-- ('admin', '123456', 'Nguyễn Quản Trị', 'quan_tri_vien'),
+-- ('gv001', '123456', 'Trần Giáo Viên', 'giao_vien'),
+-- ('hs001', '123456', 'Lê Học Sinh', 'hoc_sinh');
+
+-- Tạo bảng TaiKhoan (tài khoản đăng nhập)
+CREATE TABLE TaiKhoan (
+    MaTK INT PRIMARY KEY AUTO_INCREMENT,
+    TenDangNhap VARCHAR(50) UNIQUE NOT NULL,
+    MatKhau VARCHAR(255) NOT NULL,
+    VaiTro ENUM(
+        'Admin',
+        'GiaoVien',
+        'HocSinh'
+    ) NOT NULL,
+    TrangThai TINYINT DEFAULT 1, -- 1: hoạt động, 0: bị khóa
+    NgayTao DATETIME DEFAULT CURRENT_TIMESTAMP,
+    NgayCapNhat DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+-- Tạo bảng liên kết TaiKhoan_HocSinh và TaiKhoan_GiaoVien
+CREATE TABLE TaiKhoan_HocSinh (
+    MaTK INT PRIMARY KEY,
+    MaHS INT NOT NULL,
+    FOREIGN KEY (MaTK) REFERENCES TaiKhoan (MaTK) ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY (MaHS) REFERENCES HocSinh (MaHS) ON DELETE CASCADE ON UPDATE CASCADE
+);
+
+CREATE TABLE TaiKhoan_GiaoVien (
+    MaTK INT PRIMARY KEY,
+    MaGV INT NOT NULL,
+    FOREIGN KEY (MaTK) REFERENCES TaiKhoan (MaTK) ON DELETE CASCADE ON UPDATE CASCADE,
+    FOREIGN KEY (MaGV) REFERENCES GiaoVien (MaGV) ON DELETE CASCADE ON UPDATE CASCADE
+);
+-- Thêm dữ liệu mẫu (demo đăng nhập)
+-- Admin
+INSERT INTO
+    TaiKhoan (TenDangNhap, MatKhau, VaiTro)
+VALUES ('admin', '123456', 'Admin');
+
+-- Giáo viên có tài khoản riêng
+INSERT INTO
+    TaiKhoan (TenDangNhap, MatKhau, VaiTro)
+VALUES ('gv101', '123456', 'GiaoVien'),
+    ('gv102', '123456', 'GiaoVien'),
+    ('gv103', '123456', 'GiaoVien');
+
+-- Học sinh có tài khoản riêng
+INSERT INTO
+    TaiKhoan (TenDangNhap, MatKhau, VaiTro)
+VALUES ('hs001', '123456', 'HocSinh'),
+    ('hs002', '123456', 'HocSinh'),
+    ('hs003', '123456', 'HocSinh');
+
+-- Liên kết
+INSERT INTO
+    TaiKhoan_GiaoVien (MaTK, MaGV)
+VALUES (2, 101),
+    (3, 102),
+    (4, 103);
+
+INSERT INTO
+    TaiKhoan_HocSinh (MaTK, MaHS)
+VALUES (5, 1),
+    (6, 2),
+    (7, 3);
+
+-- Truy vấn test tài khoản liên kết
+-- Lấy danh sách tài khoản giáo viên
+-- SELECT tk.MaTK, tk.TenDangNhap, gv.HoTen, gv.Email
+-- FROM TaiKhoan tk
+-- JOIN TaiKhoan_GiaoVien tkgv ON tkgv.MaTK = tk.MaTK
+-- JOIN GiaoVien gv ON gv.MaGV = tkgv.MaGV;
+-- Lấy danh sách tài khoản học sinh
+-- SELECT tk.MaTK, tk.TenDangNhap, hs.HoTen, hs.Email
+-- FROM TaiKhoan tk
+-- JOIN TaiKhoan_HocSinh tkhs ON tkhs.MaTK = tk.MaTK
+-- JOIN HocSinh hs ON hs.MaHS = tkhs.MaHS;

@@ -45,7 +45,6 @@ public class DangNhapUI extends JFrame {
         form.setBorder(new EmptyBorder(20, 60, 20, 60));
         root.add(form, BorderLayout.CENTER);
 
-       
         // Username
         JLabel lblUser = new JLabel("Tên đăng nhập:");
         lblUser.setFont(new Font("Segoe UI", Font.PLAIN, 14));
@@ -57,8 +56,7 @@ public class DangNhapUI extends JFrame {
         txtUser.setBackground(FIELD_BG);
         txtUser.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(FIELD_BORDER),
-                new EmptyBorder(6, 8, 6, 8)
-        ));
+                new EmptyBorder(6, 8, 6, 8)));
         form.add(txtUser);
         form.add(Box.createVerticalStrut(12));
 
@@ -73,8 +71,7 @@ public class DangNhapUI extends JFrame {
         txtPass.setBackground(FIELD_BG);
         txtPass.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(FIELD_BORDER),
-                new EmptyBorder(6, 8, 6, 8)
-        ));
+                new EmptyBorder(6, 8, 6, 8)));
         form.add(txtPass);
         form.add(Box.createVerticalStrut(20));
 
@@ -158,7 +155,6 @@ public class DangNhapUI extends JFrame {
         });
     }
 
-
     public static void main(String[] args) {
         SwingUtilities.invokeLater(() -> {
             try {
@@ -168,7 +164,8 @@ public class DangNhapUI extends JFrame {
                         break;
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
             new DangNhapUI().setVisible(true);
         });
     }

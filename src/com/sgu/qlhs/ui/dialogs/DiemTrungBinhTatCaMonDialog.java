@@ -231,6 +231,18 @@ public class DiemTrungBinhTatCaMonDialog extends JDialog {
             }
 
             int saved = 0;
+            int failed = 0;
+            // resolve logged-in user for permission checks
+            com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
             int maNK = com.sgu.qlhs.bus.NienKhoaBUS.current();
             int selNk = cboNamHoc.getSelectedIndex();
             if (selNk >= 0 && selNk < nienKhoaIds.size())
@@ -254,13 +266,15 @@ public class DiemTrungBinhTatCaMonDialog extends JDialog {
                     if (maMon == null)
                         continue; // unknown subject name
                     try {
-                        // Persist HK TB by populating all components with the same TB
-                        // This ensures the DB-generated DiemTB equals the TB value the user entered.
                         double tbv = val.doubleValue();
-                        diemBUS.saveOrUpdateDiem(maHS, maMon, 1, maNK, tbv, tbv, tbv, tbv);
-                        saved++;
+                        boolean ok = diemBUS.saveOrUpdateDiem(maHS, maMon, 1, maNK, tbv, tbv, tbv, tbv, nd);
+                        if (ok)
+                            saved++;
+                        else
+                            failed++;
                     } catch (Exception ex) {
                         System.err.println("Lỗi khi lưu điểm HK1: " + ex.getMessage());
+                        failed++;
                     }
                 }
             }
@@ -284,15 +298,26 @@ public class DiemTrungBinhTatCaMonDialog extends JDialog {
                         continue;
                     try {
                         double tbv = val.doubleValue();
-                        diemBUS.saveOrUpdateDiem(maHS, maMon, 2, maNK, tbv, tbv, tbv, tbv);
-                        saved++;
+                        boolean ok = diemBUS.saveOrUpdateDiem(maHS, maMon, 2, maNK, tbv, tbv, tbv, tbv, nd);
+                        if (ok)
+                            saved++;
+                        else
+                            failed++;
                     } catch (Exception ex) {
                         System.err.println("Lỗi khi lưu điểm HK2: " + ex.getMessage());
+                        failed++;
                     }
                 }
             }
 
-            JOptionPane.showMessageDialog(this, "Đã lưu " + saved + " mục điểm vào cơ sở dữ liệu.");
+            if (failed > 0) {
+                JOptionPane.showMessageDialog(this,
+                        "Hoàn tất lưu. Đã lưu " + saved + " mục, nhưng " + failed
+                                + " mục không được lưu do thiếu quyền.",
+                        "Kết quả", JOptionPane.WARNING_MESSAGE);
+            } else {
+                JOptionPane.showMessageDialog(this, "Đã lưu " + saved + " mục điểm vào cơ sở dữ liệu.");
+            }
         });
         btnClose.addActionListener(e -> {
             if (e == null)
