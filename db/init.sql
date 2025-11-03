@@ -9299,7 +9299,7 @@ VALUES (5, 1),
 
 -- Truy vấn test tài khoản liên kết
 -- Lấy danh sách tài khoản giáo viên
--- SELECT tk.MaTK, tk.TenDangNhap, gv.HoTen, gv.Email
+-- SELECT tk.MaTK, tk.TenDangNhap, gv.HoTen, gv.Emailphancongday
 -- FROM TaiKhoan tk
 -- JOIN TaiKhoan_GiaoVien tkgv ON tkgv.MaTK = tk.MaTK
 -- JOIN GiaoVien gv ON gv.MaGV = tkgv.MaGV;
@@ -9308,3 +9308,18 @@ VALUES (5, 1),
 -- FROM TaiKhoan tk
 -- JOIN TaiKhoan_HocSinh tkhs ON tkhs.MaTK = tk.MaTK
 -- JOIN HocSinh hs ON hs.MaHS = tkhs.MaHS;
+
+-- Bước 1: Thêm cột vào MonHoc để phân loại môn
+ALTER TABLE MonHoc
+ADD COLUMN LoaiMon ENUM('TinhDiem', 'DanhGia') NOT NULL DEFAULT 'TinhDiem'
+COMMENT 'TinhDiem = Môn tính điểm số, DanhGia = Môn chỉ đánh giá Đ/KĐ';
+
+-- Cập nhật các môn đánh giá (Thể dục, GDCD)
+UPDATE MonHoc
+SET LoaiMon = 'DanhGia'
+WHERE TenMon IN ('Thể dục', 'Giáo dục công dân');
+
+-- Bước 2: Thêm cột vào Diem để lưu kết quả Đ/KĐ
+ALTER TABLE Diem
+ADD COLUMN KetQuaDanhGia ENUM('Đ', 'KĐ') DEFAULT NULL
+COMMENT 'Chỉ dùng cho các môn có LoaiMon = DanhGia';
