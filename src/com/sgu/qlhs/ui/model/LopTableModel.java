@@ -18,6 +18,25 @@ public class LopTableModel extends AbstractTableModel {
         this.data = lopBUS.getAllLop();
     }
 
+    /**
+     * Construct a table model containing only the classes in the provided id list.
+     * If allowedMaLop is null or empty, falls back to all classes.
+     */
+    public LopTableModel(java.util.List<Integer> allowedMaLop) {
+        LopBUS lopBUS = new LopBUS();
+        if (allowedMaLop == null || allowedMaLop.isEmpty()) {
+            this.data = lopBUS.getAllLop();
+        } else {
+            java.util.List<LopDTO> list = new java.util.ArrayList<>();
+            for (Integer id : allowedMaLop) {
+                LopDTO l = lopBUS.getLopByMa(id);
+                if (l != null)
+                    list.add(l);
+            }
+            this.data = list;
+        }
+    }
+
     @Override
     public int getRowCount() {
         return data == null ? 0 : data.size();

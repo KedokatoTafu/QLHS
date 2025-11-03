@@ -1,6 +1,10 @@
 package com.sgu.qlhs.ui.panels;
 
 import com.sgu.qlhs.ui.components.RoundedPanel;
+import com.sgu.qlhs.bus.LopBUS;
+import com.sgu.qlhs.bus.PhanCongDayBUS;
+import com.sgu.qlhs.bus.NienKhoaBUS;
+import com.sgu.qlhs.dto.NguoiDungDTO;
 import com.sgu.qlhs.ui.model.HocSinhTableModel;
 import com.sgu.qlhs.ui.dialogs.HocSinhDetailDialog;
 
@@ -42,6 +46,9 @@ public class HocSinhPanel extends JPanel {
         outer.add(innerWrap, BorderLayout.CENTER);
 
         add(outer, BorderLayout.CENTER);
+
+        // apply filters initially (after table created)
+        SwingUtilities.invokeLater(this::applyHsFilters);
     }
 
     private JComponent buildFilter() {
@@ -51,8 +58,45 @@ public class HocSinhPanel extends JPanel {
         txtHsSearch = new JTextField(18);
         txtHsSearch.setBorder(BorderFactory.createTitledBorder("Từ khóa"));
 
-        cboHsLop = new JComboBox<>(new String[] { "Tất cả", "10A1", "10A2", "11A1", "12A1" });
+        cboHsLop = new JComboBox<>();
         cboHsLop.setBorder(BorderFactory.createTitledBorder("Lớp"));
+        // populate lớp options; if logged-in user is a teacher, restrict to classes
+        // they teach
+        try {
+            java.awt.Window w = SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                    cboHsLop.addItem("Tất cả");
+                    LopBUS lopBUS = new LopBUS();
+                    PhanCongDayBUS pc = new PhanCongDayBUS();
+                    int maNK = NienKhoaBUS.current();
+                    // no hoc ky filter here (show all classes assigned across HKs)
+                    java.util.List<Integer> lopIds = pc.getDistinctMaLopByGiaoVien(nd.getId(), maNK, null);
+                    for (Integer ml : lopIds) {
+                        com.sgu.qlhs.dto.LopDTO l = lopBUS.getLopByMa(ml);
+                        if (l != null)
+                            cboHsLop.addItem(l.getTenLop());
+                    }
+                } else {
+                    // not a teacher: show all classes
+                    cboHsLop.addItem("Tất cả");
+                    cboHsLop.addItem("10A1");
+                    cboHsLop.addItem("10A2");
+                    cboHsLop.addItem("11A1");
+                    cboHsLop.addItem("12A1");
+                }
+            } else {
+                cboHsLop.addItem("Tất cả");
+                cboHsLop.addItem("10A1");
+                cboHsLop.addItem("10A2");
+                cboHsLop.addItem("11A1");
+                cboHsLop.addItem("12A1");
+            }
+        } catch (Exception ex) {
+            cboHsLop.addItem("Tất cả");
+        }
 
         cboHsGioiTinh = new JComboBox<>(new String[] { "Tất cả", "Nam", "Nữ", "Khác" });
         cboHsGioiTinh.setBorder(BorderFactory.createTitledBorder("Giới tính"));

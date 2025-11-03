@@ -372,11 +372,17 @@ public class DiemPanel extends JPanel {
                     Integer hkParam = hkIdx > 0 ? hkIdx : null;
                     java.util.List<Integer> lopIds = phanCongBUS.getDistinctMaLopByGiaoVien(nd.getId(), maNK,
                             hkParam);
+                    // build lopList to mirror combo entries so indices align later
+                    lopList = new java.util.ArrayList<>();
                     for (Integer ml : lopIds) {
                         var l = lopBUS.getLopByMa(ml);
-                        if (l != null)
+                        if (l != null) {
+                            lopList.add(l);
                             cboLop.addItem(l.getTenLop());
+                        }
                     }
+                    if (cboLop.getItemCount() > 0)
+                        cboLop.setSelectedIndex(0);
                     return;
                 }
                 // if student, show only their class and disable selection
@@ -421,21 +427,36 @@ public class DiemPanel extends JPanel {
                     Integer hkParam = hkIdx > 0 ? hkIdx : null;
                     java.util.List<Integer> monIds = phanCongBUS.getDistinctMaMonByGiaoVien(nd.getId(), maNK,
                             hkParam);
-                    monList = monBUS.getAllMon();
+                    // build a filtered monList that mirrors combo entries
+                    monList = new java.util.ArrayList<>();
+                    java.util.List<MonHocDTO> allMons = monBUS.getAllMon();
                     for (Integer mm : monIds) {
-                        for (MonHocDTO m : monList) {
+                        for (MonHocDTO m : allMons) {
                             if (m.getMaMon() == mm) {
+                                monList.add(m);
                                 cboMon.addItem(m.getTenMon());
                                 break;
                             }
                         }
                     }
+                    if (cboMon.getItemCount() > 0)
+                        cboMon.setSelectedIndex(0);
+                    return;
+                }
+                // if student, disable subject selection
+                if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                    cboMon.removeAllItems();
+                    cboMon.addItem("-- Tất cả --");
+                    cboMon.setSelectedIndex(0);
+                    cboMon.setEnabled(false);
                     return;
                 }
             }
         } catch (Exception ex) {
             System.err.println("Lỗi lấy môn theo phân công: " + ex.getMessage());
         }
+
+        // fallback: show all subjects
         monList = monBUS.getAllMon();
         for (MonHocDTO m : monList) {
             cboMon.addItem(m.getTenMon());
@@ -445,6 +466,18 @@ public class DiemPanel extends JPanel {
     private void loadData() {
         model.setRowCount(0);
         int maNK = NienKhoaBUS.current();
+
+        // resolve current user (once) so both student and teacher branches can use it
+        NguoiDungDTO nd = null;
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                nd = md.getNguoiDung();
+            }
+        } catch (Exception ex) {
+            // ignore
+        }
 
         // Server-side filtered fetch
         Integer maLop = null;
@@ -470,16 +503,6 @@ public class DiemPanel extends JPanel {
             // student view: only fetch this student's records (may be both HK1/HK2)
             // Use permission-aware reads (pass the logged-in user) to enforce
             // defense-in-depth
-            NguoiDungDTO nd = null;
-            try {
-                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
-                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
-                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
-                    nd = md.getNguoiDung();
-                }
-            } catch (Exception ex) {
-                // ignore
-            }
             rows = new java.util.ArrayList<>();
             if (hocKy != null && hocKy > 0) {
                 rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, hocKy, maNK, nd));
@@ -491,7 +514,16 @@ public class DiemPanel extends JPanel {
             hasNext = false;
         } else {
             int fetchSize = pageSize + 1;
-            rows = diemBUS.getDiemFiltered(maLop, maMon, hocKy, maNK, fetchSize, currentPage * pageSize);
+            // when a teacher is logged-in, use a permission-aware fetch so they only
+            // receive diem rows they are assigned to (defense-in-depth)
+            java.util.List<com.sgu.qlhs.dto.DiemDTO> fetched;
+            if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                fetched = diemBUS.getDiemFilteredForUser(maLop, maMon, hocKy, maNK, fetchSize,
+                        currentPage * pageSize, nd);
+            } else {
+                fetched = diemBUS.getDiemFiltered(maLop, maMon, hocKy, maNK, fetchSize, currentPage * pageSize);
+            }
+            rows = fetched;
             hasNext = rows.size() > pageSize;
             if (hasNext) {
                 rows = new java.util.ArrayList<>(rows.subList(0, pageSize));

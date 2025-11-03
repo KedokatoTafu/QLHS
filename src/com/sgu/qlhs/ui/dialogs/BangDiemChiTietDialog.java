@@ -70,12 +70,20 @@ public class BangDiemChiTietDialog extends JDialog {
     // student view flags (when the logged-in user is a student)
     private boolean isStudentView = false;
     private int loggedInStudentMaHS = -1;
+    // teacher view flag (when the logged-in user is a teacher)
+    private boolean isTeacherView = false;
+    // toolbar buttons that need to be enabled/disabled based on permissions
+    private JButton btnEdit;
+    private JButton btnSave;
+    private JButton btnCancel;
     // optional initial class context (MaLop). If >=0, the dialog will try to
     // preselect it
     private int initialMaLopContext = -1;
     // optional initial student context (MaHS). If >=0, the dialog will try to
     // preselect that student
     private int initialMaHS = -1;
+    // per-row edit mask computed for the currently loaded diem rows
+    private java.util.List<Boolean> rowCanEditList = new java.util.ArrayList<>();
 
     public BangDiemChiTietDialog(Window owner) {
         super(owner, "Bảng điểm chi tiết học sinh", ModalityType.APPLICATION_MODAL);
@@ -183,10 +191,10 @@ public class BangDiemChiTietDialog extends JDialog {
         leftPanel.add(cboNamHoc);
 
         JButton btnLoad = new JButton("Xem bảng điểm");
-        JButton btnEdit = new JButton("Sửa");
-        JButton btnSave = new JButton("Lưu");
+        btnEdit = new JButton("Sửa");
+        btnSave = new JButton("Lưu");
         btnSave.setEnabled(false);
-        JButton btnCancel = new JButton("Hủy");
+        btnCancel = new JButton("Hủy");
         btnCancel.setEnabled(false);
         JButton btnExport = new JButton("Xuất CSV");
         JButton btnPrint = new JButton("In");
@@ -212,21 +220,46 @@ public class BangDiemChiTietDialog extends JDialog {
         toolbar.add(rightPanel, BorderLayout.EAST);
         root.add(toolbar, BorderLayout.NORTH);
 
-        // --- Determine if current user is a student and adjust UI accordingly ---
+        // --- Determine the current user role and adjust UI accordingly ---
         try {
             java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
             if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
                 com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
                 NguoiDungDTO nd = md.getNguoiDung();
                 if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                    // Student: only viewing permitted; disable edit controls
                     isStudentView = true;
                     loggedInStudentMaHS = nd.getId(); // mapping assumed: NguoiDung.id -> HocSinh.MaHS
-                    // Students must not edit; they should be allowed to view and print/export their
-                    // own report
                     btnEdit.setEnabled(false);
                     btnSave.setEnabled(false);
                     btnCancel.setEnabled(false);
                     // keep btnExport/btnPrint enabled so student can export/print their own report
+                } else if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                    // Teacher: hide or disable filters that are unnecessary when the dialog is
+                    // opened from the panel for a specific student. Keep editing controls
+                    // available according to permission checks.
+                    isTeacherView = true;
+                    // hide the class and student selectors from the filter bar to focus
+                    // teacher on the selected student and editing area
+                    try {
+                        cboLop.setVisible(false);
+                        cboHocSinh.setVisible(false);
+                        // also hide the corresponding labels in the left panel if present
+                        java.awt.Container parent = cboLop.getParent();
+                        if (parent instanceof JPanel) {
+                            Component[] comps = parent.getComponents();
+                            for (int i = 0; i < comps.length; i++) {
+                                if (comps[i] instanceof JLabel) {
+                                    String txt = ((JLabel) comps[i]).getText();
+                                    if (txt != null && (txt.contains("Lớp") || txt.contains("Học sinh"))) {
+                                        comps[i].setVisible(false);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (Exception ex) {
+                        // non-fatal: if hiding labels fails, continue with combos hidden
+                    }
                 }
             }
         } catch (Exception ex) {
@@ -615,14 +648,6 @@ public class BangDiemChiTietDialog extends JDialog {
 
         // ===== BẢNG ĐIỂM =====
         String[] columns = { "STT", "Tên môn học", "Miệng", "15 Phút", "1 Tiết", "Cuối kỳ", "TBHK", "Ghi chú" };
-        model = new DefaultTableModel(columns, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                // allow editing of score columns (Miệng, 15 Phút, 1 Tiết, Cuối kỳ)
-                // and the teacher note column (Ghi chú at index 7)
-                return tableEditing && ((column >= 2 && column <= 5) || column == 7);
-            }
-        };
 
         // Build table rows from DiemBUS for the selected student and semester
         Object sel = cboHocSinh.getSelectedItem();
@@ -665,7 +690,63 @@ public class BangDiemChiTietDialog extends JDialog {
             currentHocKy = hkNum;
             currentMaNK = maNK;
             currentDiemList = diemList;
+
+            // Precompute per-row edit permission: for each subject row, allow editing
+            // only if the logged-in teacher is assigned to that student's class+subject
+            rowCanEditList.clear();
+            boolean anyRowEditable = false;
+            for (int i = 0; i < diemList.size(); i++) {
+                rowCanEditList.add(Boolean.TRUE);
+            }
+            try {
+                com.sgu.qlhs.dto.NguoiDungDTO ndCheck = null;
+                try {
+                    java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                    if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                        com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                        ndCheck = md.getNguoiDung();
+                    }
+                } catch (Exception ex) {
+                }
+                if (ndCheck != null && "giao_vien".equalsIgnoreCase(ndCheck.getVaiTro())) {
+                    for (int i = 0; i < diemList.size(); i++) {
+                        DiemDTO d = diemList.get(i);
+                        boolean ok = diemBUS.isTeacherAssignedPublic(ndCheck.getId(), maHS, d.getMaMon(), hkNum,
+                                maNK);
+                        rowCanEditList.set(i, ok);
+                        if (ok)
+                            anyRowEditable = true;
+                    }
+                } else {
+                    // not a teacher: all rows editable when tableEditing=true
+                    for (int i = 0; i < diemList.size(); i++)
+                        rowCanEditList.set(i, Boolean.TRUE);
+                    anyRowEditable = true;
+                }
+            } catch (Exception ex) {
+                // on errors, conservatively disable edits
+                for (int i = 0; i < rowCanEditList.size(); i++)
+                    rowCanEditList.set(i, Boolean.FALSE);
+            }
+
             int idx = 1;
+
+            // create model now that rowCanEditList is computed
+            model = new DefaultTableModel(columns, 0) {
+                @Override
+                public boolean isCellEditable(int row, int column) {
+                    // allow editing only when tableEditing true and this row is permitted
+                    if (!tableEditing)
+                        return false;
+                    if (!((column >= 2 && column <= 5) || column == 7))
+                        return false;
+                    if (row < 0 || row >= rowCanEditList.size())
+                        return false;
+                    Boolean allowed = rowCanEditList.get(row);
+                    return allowed != null && allowed.booleanValue();
+                }
+            };
+
             for (DiemDTO d : diemList) {
                 double mieng = d.getDiemMieng();
                 double p15 = d.getDiem15p();
@@ -676,6 +757,9 @@ public class BangDiemChiTietDialog extends JDialog {
                         d.getGhiChu() != null ? d.getGhiChu() : "" });
             }
             table = new JTable(model);
+
+            // compute whether any edit is allowed for the currently loaded dataset
+            boolean canEdit = (!isStudentView) && anyRowEditable;
 
             // ===== Hạnh kiểm =====
             HanhKiemDTO hk = hanhKiemBUS.getHanhKiem(maHS, maNK, hkNum, nd);
@@ -721,6 +805,25 @@ public class BangDiemChiTietDialog extends JDialog {
             pnlHK.add(cboHanhKiemEditor);
             content.add(Box.createVerticalStrut(10));
             content.add(pnlHK);
+            // apply computed permission: enable/disable edit actions for teachers
+            try {
+                if (btnEdit != null)
+                    btnEdit.setEnabled(canEdit);
+                if (!canEdit) {
+                    if (btnSave != null)
+                        btnSave.setEnabled(false);
+                    if (btnCancel != null)
+                        btnCancel.setEnabled(false);
+                    if (cboHanhKiemEditor != null) {
+                        cboHanhKiemEditor.setEnabled(false);
+                        cboHanhKiemEditor.setVisible(false);
+                    }
+                    if (lblHanhKiemValue != null)
+                        lblHanhKiemValue.setVisible(true);
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
         }
 
         table.setFont(new Font("Arial", Font.PLAIN, 12));
@@ -728,11 +831,55 @@ public class BangDiemChiTietDialog extends JDialog {
         table.getTableHeader().setFont(new Font("Arial", Font.BOLD, 12));
         table.getTableHeader().setBackground(new Color(240, 240, 240));
 
-        // Căn giữa các cột
+        // Căn giữa các cột and apply permission-aware row highlighting.
         DefaultTableCellRenderer centerRenderer = new DefaultTableCellRenderer();
         centerRenderer.setHorizontalAlignment(JLabel.CENTER);
+
+        // Renderer that indicates which rows are editable by background color and
+        // optional tooltip. It delegates to centerRenderer for alignment and basic
+        // rendering, then adjusts background based on rowCanEditList.
+        DefaultTableCellRenderer permissionRenderer = new DefaultTableCellRenderer() {
+            @Override
+            public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
+                    boolean hasFocus, int row, int column) {
+                Component c = centerRenderer.getTableCellRendererComponent(table, value, isSelected, hasFocus,
+                        row, column);
+                // default backgrounds
+                Color editableBg = new Color(225, 255, 225); // light green for editable
+                Color normalBg = Color.WHITE;
+                Color disabledBg = new Color(245, 245, 245);
+
+                try {
+                    int modelRow = table.convertRowIndexToModel(row);
+                    boolean canEdit = false;
+                    if (modelRow >= 0 && modelRow < rowCanEditList.size()) {
+                        Boolean b = rowCanEditList.get(modelRow);
+                        canEdit = b != null && b.booleanValue();
+                    }
+                    if (isSelected) {
+                        // keep selection color when selected
+                        c.setBackground(table.getSelectionBackground());
+                    } else if (canEdit) {
+                        c.setBackground(editableBg);
+                    } else {
+                        c.setBackground(normalBg);
+                    }
+                    if (c instanceof JComponent) {
+                        if (canEdit) {
+                            ((JComponent) c).setToolTipText("Hàng này có thể sửa bởi giáo viên được phân công");
+                        } else {
+                            ((JComponent) c).setToolTipText(null);
+                        }
+                    }
+                } catch (Exception ex) {
+                    c.setBackground(normalBg);
+                }
+                return c;
+            }
+        };
+
         for (int i = 0; i < table.getColumnCount(); i++) {
-            table.getColumnModel().getColumn(i).setCellRenderer(centerRenderer);
+            table.getColumnModel().getColumn(i).setCellRenderer(permissionRenderer);
         }
 
         // Đặt độ rộng cột
@@ -796,6 +943,7 @@ public class BangDiemChiTietDialog extends JDialog {
         content.add(spNhanXet);
 
         pnlBangDiem.add(content, BorderLayout.CENTER);
+
         pnlBangDiem.revalidate();
         pnlBangDiem.repaint();
     }

@@ -213,6 +213,21 @@ public class TKBPanel extends JPanel {
                         btnExport.setEnabled(false);
                         return;
                     }
+                    // If current user is a teacher, restrict class list to those assigned
+                    if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                        cboLop.removeAllItems();
+                        cboLop.addItem("Tất cả");
+                        com.sgu.qlhs.bus.PhanCongDayBUS pc = new com.sgu.qlhs.bus.PhanCongDayBUS();
+                        com.sgu.qlhs.bus.LopBUS lopBUS = new com.sgu.qlhs.bus.LopBUS();
+                        int maNK = com.sgu.qlhs.bus.NienKhoaBUS.current();
+                        java.util.List<Integer> lopIds = pc.getDistinctMaLopByGiaoVien(nd.getId(), maNK, null);
+                        for (Integer ml : lopIds) {
+                            com.sgu.qlhs.dto.LopDTO l = lopBUS.getLopByMa(ml);
+                            if (l != null)
+                                cboLop.addItem(l.getTenLop());
+                        }
+                        return;
+                    }
                 }
             } catch (Exception ex) {
                 // ignore and fall back to reading all classes

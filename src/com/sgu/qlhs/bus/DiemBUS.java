@@ -306,4 +306,44 @@ public class DiemBUS {
             Integer limit, Integer offset) {
         return dao.getDiemFiltered(maLop, maMon, hocKy, maNK, limit, offset);
     }
+
+    /**
+     * Permission-aware filtered fetch. If user is a teacher, only return diem rows
+     * that the teacher is assigned to (by class/subject/NK/HK). This method wraps
+     * {@link #getDiemFiltered(Integer,Integer,Integer,Integer,Integer,Integer)} and
+     * post-filters the results.
+     */
+    public List<DiemDTO> getDiemFilteredForUser(Integer maLop, Integer maMon, Integer hocKy, Integer maNK,
+            Integer limit, Integer offset, NguoiDungDTO user) {
+        List<DiemDTO> all = getDiemFiltered(maLop, maMon, hocKy, maNK, limit, offset);
+        if (user == null || !"giao_vien".equalsIgnoreCase(user.getVaiTro()))
+            return all;
+        java.util.List<DiemDTO> filtered = new java.util.ArrayList<>();
+        for (DiemDTO d : all) {
+            try {
+                // only include rows where the teacher is assigned to the student's class /
+                // subject
+                if (isTeacherAssignedPublic(user.getId(), d.getMaHS(), d.getMaMon(), d.getHocKy(), maNK)) {
+                    filtered.add(d);
+                }
+            } catch (Exception ex) {
+                // on error, be conservative and skip the row
+            }
+        }
+        return filtered;
+    }
+
+    /**
+     * Public wrapper around the internal assignment check. Returns true when the
+     * teacher (maGV) is assigned to the student's class (and optionally subject)
+     * for the given NK/HK.
+     */
+    public boolean isTeacherAssignedPublic(int maGV, int maHS, Integer maMon, int hocKy, int maNK) {
+        try {
+            return isTeacherAssigned(maGV, maHS, maMon, hocKy, maNK);
+        } catch (SQLException ex) {
+            System.err.println("Lỗi khi kiểm tra phân công: " + ex.getMessage());
+            return false;
+        }
+    }
 }

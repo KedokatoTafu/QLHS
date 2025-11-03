@@ -2,6 +2,7 @@ package com.sgu.qlhs.ui.panels;
 
 import com.sgu.qlhs.ui.components.RoundedPanel;
 import com.sgu.qlhs.ui.dialogs.BangDiemChiTietDialog;
+import com.sgu.qlhs.bus.PhanCongDayBUS;
 import com.sgu.qlhs.ui.model.LopTableModel;
 import com.sgu.qlhs.ui.model.PhongTableModel;
 import javax.swing.*;
@@ -31,8 +32,30 @@ public class LopPhongPanel extends JPanel {
         var lopPanel = new JPanel(new BorderLayout());
         lopPanel.setOpaque(false);
 
-        LopTableModel lopModel = new LopTableModel();
-        JTable tblLop = new JTable(lopModel);
+        // If current user is a teacher, show only classes assigned to them
+        LopTableModel lopModel;
+        try {
+            java.awt.Window w = SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                com.sgu.qlhs.dto.NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                    int maNK = com.sgu.qlhs.bus.NienKhoaBUS.current();
+                    PhanCongDayBUS pc = new PhanCongDayBUS();
+                    java.util.List<Integer> lopIds = pc.getDistinctMaLopByGiaoVien(nd.getId(), maNK, null);
+                    lopModel = new LopTableModel(lopIds);
+                } else {
+                    lopModel = new LopTableModel();
+                }
+            } else {
+                lopModel = new LopTableModel();
+            }
+        } catch (Exception ex) {
+            lopModel = new LopTableModel();
+        }
+        // make a final reference for use inside lambdas
+        final LopTableModel lopModelFinal = lopModel;
+        JTable tblLop = new JTable(lopModelFinal);
 
         // Thanh công cụ
         JPanel bar = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 4));
@@ -49,9 +72,9 @@ public class LopPhongPanel extends JPanel {
             int row = tblLop.getSelectedRow();
             if (row >= 0) {
                 int modelRow = tblLop.convertRowIndexToModel(row);
-                int maLop = lopModel.getMaLop(modelRow);
-                String tenLop = lopModel.getTenLop(modelRow);
-                java.util.List<com.sgu.qlhs.dto.HocSinhDTO> dsHocSinh = lopModel.getHocSinhByLop(maLop);
+                int maLop = lopModelFinal.getMaLop(modelRow);
+                String tenLop = lopModelFinal.getTenLop(modelRow);
+                java.util.List<com.sgu.qlhs.dto.HocSinhDTO> dsHocSinh = lopModelFinal.getHocSinhByLop(maLop);
 
                 new ChiTietLopDialog(SwingUtilities.getWindowAncestor(this), maLop, tenLop, dsHocSinh)
                         .setVisible(true);
@@ -65,7 +88,7 @@ public class LopPhongPanel extends JPanel {
             int row = tblLop.getSelectedRow();
             if (row >= 0) {
                 int modelRow = tblLop.convertRowIndexToModel(row);
-                int maLop = lopModel.getMaLop(modelRow);
+                int maLop = lopModelFinal.getMaLop(modelRow);
                 BangDiemChiTietDialog dlg = new BangDiemChiTietDialog(SwingUtilities.getWindowAncestor(this));
                 dlg.setInitialMaLop(maLop);
                 dlg.setVisible(true);
