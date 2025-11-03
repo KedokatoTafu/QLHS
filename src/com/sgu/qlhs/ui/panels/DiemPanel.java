@@ -17,6 +17,8 @@ import com.sgu.qlhs.bus.HanhKiemBUS;
 import com.sgu.qlhs.bus.PhanCongDayBUS;
 import com.sgu.qlhs.dto.NguoiDungDTO;
 import com.sgu.qlhs.bus.HocSinhBUS;
+// THÊM: Import DiemDTO
+import com.sgu.qlhs.dto.DiemDTO;
 import com.sgu.qlhs.dto.HocSinhDTO;
 import com.sgu.qlhs.dto.LopDTO;
 import com.sgu.qlhs.dto.MonHocDTO;
@@ -56,6 +58,7 @@ public class DiemPanel extends JPanel {
     // attached)
     private boolean userContextResolved = false;
     // keep last fetched rows so popup actions can map table rows to DTOs
+    // SỬA: Dùng DiemDTO
     private java.util.List<com.sgu.qlhs.dto.DiemDTO> currentRows = new java.util.ArrayList<>();
     // pagination
     private int pageSize = 100;
@@ -97,9 +100,10 @@ public class DiemPanel extends JPanel {
         outer.add(filterBar, BorderLayout.PAGE_START);
 
         // Table model and table
+        // SỬA: Thêm cột "Kết quả" (sau Cuối kỳ)
         model = new DefaultTableModel(
                 new Object[] { "MaDiem", "Mã HS", "Họ tên", "Lớp", "Môn", "HK", "Miệng", "15p", "Giữa kỳ", "Cuối kỳ",
-                        "Hạnh kiểm" },
+                        "Kết quả", "Hạnh kiểm" },
                 0) {
             @Override
             public boolean isCellEditable(int row, int column) {
@@ -120,6 +124,8 @@ public class DiemPanel extends JPanel {
                     case 8: // Giữa kỳ
                     case 9: // Cuối kỳ
                         return Double.class;
+                    case 10: // Kết quả (MỚI)
+                        return Object.class; // Có thể là Double (TB) hoặc String (Đ/KĐ)
                     default:
                         return String.class;
                 }
@@ -484,11 +490,11 @@ public class DiemPanel extends JPanel {
         Integer maMon = null;
         Integer hocKy = null;
         int lopIdx = cboLop.getSelectedIndex();
-        if (lopIdx > 0) {
+        if (lopIdx > 0 && lopList != null && lopIdx <= lopList.size()) { // Thêm kiểm tra null
             maLop = lopList.get(lopIdx - 1).getMaLop();
         }
         int monIdx = cboMon.getSelectedIndex();
-        if (monIdx > 0) {
+        if (monIdx > 0 && monList != null && monIdx <= monList.size()) { // Thêm kiểm tra null
             maMon = monList.get(monIdx - 1).getMaMon();
         }
         int hkIdx = cboHK.getSelectedIndex();
@@ -561,18 +567,43 @@ public class DiemPanel extends JPanel {
             }
         }
 
+        // SỬA: Lặp và thêm hàng dựa trên LoaiMon
         for (var d : rows) {
+            // Lọc filter (nếu có)
             if (filterMon && !d.getTenMon().equals(selMon))
                 continue;
             if (hkFilter > 0 && d.getHocKy() != hkFilter)
                 continue;
+                
             String hkStr = "";
             var mapForHK = hkMaps.get(d.getHocKy());
             if (mapForHK != null && mapForHK.containsKey(d.getMaHS()))
                 hkStr = mapForHK.get(d.getMaHS());
 
-            model.addRow(new Object[] { d.getMaDiem(), d.getMaHS(), d.getHoTen(), d.getTenLop(), d.getTenMon(),
-                    d.getHocKy(), d.getDiemMieng(), d.getDiem15p(), d.getDiemGiuaKy(), d.getDiemCuoiKy(), hkStr });
+            // Kiểm tra LoaiMon từ DTO (đã được BUS nạp)
+            if ("DanhGia".equals(d.getLoaiMon())) {
+                model.addRow(new Object[] {
+                        d.getMaDiem(), d.getMaHS(), d.getHoTen(), d.getTenLop(), d.getTenMon(),
+                        d.getHocKy(),
+                        null, // Miệng
+                        null, // 15p
+                        null, // Giữa kỳ
+                        null, // Cuối kỳ
+                        d.getKetQuaDanhGia(), // Kết quả (Đ/KĐ)
+                        hkStr // Hạnh kiểm
+                });
+            } else { // Môn TinhDiem
+                model.addRow(new Object[] {
+                        d.getMaDiem(), d.getMaHS(), d.getHoTen(), d.getTenLop(), d.getTenMon(),
+                        d.getHocKy(),
+                        d.getDiemMieng(),
+                        d.getDiem15p(),
+                        d.getDiemGiuaKy(),
+                        d.getDiemCuoiKy(),
+                        d.getDiemTB(), // Kết quả (Điểm TB)
+                        hkStr // Hạnh kiểm
+                });
+            }
         }
 
         updatePageControls(hasNext);
@@ -615,10 +646,12 @@ public class DiemPanel extends JPanel {
         }
         models.sort(java.util.Collections.reverseOrder());
         int maNK = NienKhoaBUS.current();
-        for (int modelRow : models) {
-            if (modelRow < 0 || modelRow >= currentRows.size())
+        
+        // SỬA: Lấy modelRow từ danh sách đã sắp xếp
+        for (int modelRowIndex : models) {
+            if (modelRowIndex < 0 || modelRowIndex >= currentRows.size())
                 continue;
-            var dto = currentRows.get(modelRow);
+            var dto = currentRows.get(modelRowIndex);
             try {
                 // resolve current user from MainDashboard (if available) to enforce server-side
                 // checks
@@ -637,13 +670,16 @@ public class DiemPanel extends JPanel {
                 if (!ok) {
                     JOptionPane.showMessageDialog(this, "Bạn không có quyền xóa điểm này.", "Không có quyền",
                             JOptionPane.WARNING_MESSAGE);
-                    continue;
+                    continue; // Bỏ qua hàng này nếu không xóa được
                 }
+                 // Chỉ xóa khỏi model/currentRows NẾU xóa DB thành công
+                model.removeRow(modelRowIndex);
+                currentRows.remove(modelRowIndex);
+
             } catch (Exception ex) {
                 System.err.println("Lỗi khi xóa: " + ex.getMessage());
             }
-            model.removeRow(modelRow);
-            currentRows.remove(modelRow);
+           
         }
     }
 

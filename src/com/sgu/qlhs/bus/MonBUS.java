@@ -22,7 +22,11 @@ public class MonBUS {
                     ? ((r[2] instanceof Integer) ? (Integer) r[2] : Integer.parseInt(r[2].toString()))
                     : 0;
             String ghi = (r.length > 3 && r[3] != null) ? r[3].toString() : "";
-            list.add(new MonHocDTO(ma, ten, soTiet, ghi));
+            // <-- LẤY DỮ LIỆU CỘT MỚI -->
+            String loaiMon = (r.length > 4 && r[4] != null) ? r[4].toString() : "TinhDiem";
+
+            // <-- SỬ DỤNG CONSTRUCTOR MỚI -->
+            list.add(new MonHocDTO(ma, ten, soTiet, ghi, loaiMon));
         }
         return list;
     }

@@ -21,9 +21,11 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors; // Thêm import
 
 /**
  * Dialog để xem điểm trung bình theo học kỳ và cả năm
+ * (ĐÃ CẬP NHẬT: Lọc bỏ môn "Đánh Giá" khỏi tính toán TB)
  */
 public class DiemXemTheoHocKyDialog extends JDialog {
     private final JComboBox<String> cboLoaiXem = new JComboBox<>(new String[] { "Học kỳ 1", "Học kỳ 2", "Cả năm" });
@@ -110,9 +112,12 @@ public class DiemXemTheoHocKyDialog extends JDialog {
             int cnt = 0;
             String name = "";
             for (DiemDTO d : rows) {
-                name = d.getHoTen() != null ? d.getHoTen() : name;
-                sum += d.getDiemTB();
-                cnt++;
+                // === SỬA LỖI: Chỉ tính điểm các môn TinhDiem ===
+                if ("TinhDiem".equals(d.getLoaiMon())) {
+                    name = d.getHoTen() != null ? d.getHoTen() : name;
+                    sum += d.getDiemTB();
+                    cnt++;
+                }
             }
             double avg = cnt > 0 ? round1(sum / cnt) : 0.0;
             Object[] row = new Object[4];
@@ -129,8 +134,11 @@ public class DiemXemTheoHocKyDialog extends JDialog {
         java.util.Map<Integer, java.util.List<Double>> m = new java.util.HashMap<>();
         java.util.Map<Integer, String> names = new java.util.HashMap<>();
         for (DiemDTO d : rows) {
-            names.put(d.getMaHS(), d.getHoTen());
-            m.computeIfAbsent(d.getMaHS(), k -> new java.util.ArrayList<>()).add(d.getDiemTB());
+            // === SỬA LỖI: Chỉ tính điểm các môn TinhDiem ===
+            if ("TinhDiem".equals(d.getLoaiMon())) {
+                names.put(d.getMaHS(), d.getHoTen());
+                m.computeIfAbsent(d.getMaHS(), k -> new java.util.ArrayList<>()).add(d.getDiemTB());
+            }
         }
         java.util.List<Integer> keys = new java.util.ArrayList<>(m.keySet());
         java.util.Collections.sort(keys, (a, b) -> names.get(a).compareToIgnoreCase(names.get(b)));
@@ -170,16 +178,19 @@ public class DiemXemTheoHocKyDialog extends JDialog {
             rows = diemBUS.getDiemFiltered(maLop, null, hocKy, maNK, null, null);
         }
         for (DiemDTO d : rows) {
-            Object[] row = new Object[8];
-            row[0] = d.getMaHS();
-            row[1] = d.getHoTen();
-            row[2] = d.getTenMon();
-            row[3] = d.getDiemMieng();
-            row[4] = d.getDiem15p();
-            row[5] = d.getDiemGiuaKy();
-            row[6] = d.getDiemCuoiKy();
-            row[7] = d.getDiemTB();
-            result.add(row);
+            // === SỬA LỖI: Chỉ trả về các môn TinhDiem ===
+            if ("TinhDiem".equals(d.getLoaiMon())) {
+                Object[] row = new Object[8];
+                row[0] = d.getMaHS();
+                row[1] = d.getHoTen();
+                row[2] = d.getTenMon();
+                row[3] = d.getDiemMieng();
+                row[4] = d.getDiem15p();
+                row[5] = d.getDiemGiuaKy();
+                row[6] = d.getDiemCuoiKy();
+                row[7] = d.getDiemTB();
+                result.add(row);
+            }
         }
         return result;
     }
@@ -232,14 +243,20 @@ public class DiemXemTheoHocKyDialog extends JDialog {
         java.util.Map<Integer, Integer> lopOf = new java.util.HashMap<>();
 
         for (DiemDTO d : hk1rows) {
-            names.put(d.getMaHS(), d.getHoTen());
-            lopOf.put(d.getMaHS(), d.getMaLop());
-            map1.computeIfAbsent(d.getMaHS(), k -> new java.util.ArrayList<>()).add(d.getDiemTB());
+            // === SỬA LỖI: Chỉ tính điểm các môn TinhDiem ===
+            if ("TinhDiem".equals(d.getLoaiMon())) {
+                names.put(d.getMaHS(), d.getHoTen());
+                lopOf.put(d.getMaHS(), d.getMaLop());
+                map1.computeIfAbsent(d.getMaHS(), k -> new java.util.ArrayList<>()).add(d.getDiemTB());
+            }
         }
         for (DiemDTO d : hk2rows) {
-            names.put(d.getMaHS(), d.getHoTen());
-            lopOf.put(d.getMaHS(), d.getMaLop());
-            map2.computeIfAbsent(d.getMaHS(), k -> new java.util.ArrayList<>()).add(d.getDiemTB());
+            // === SỬA LỖI: Chỉ tính điểm các môn TinhDiem ===
+            if ("TinhDiem".equals(d.getLoaiMon())) {
+                names.put(d.getMaHS(), d.getHoTen());
+                lopOf.put(d.getMaHS(), d.getMaLop());
+                map2.computeIfAbsent(d.getMaHS(), k -> new java.util.ArrayList<>()).add(d.getDiemTB());
+            }
         }
 
         // union keys

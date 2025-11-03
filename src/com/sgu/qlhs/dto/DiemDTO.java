@@ -17,6 +17,11 @@ public class DiemDTO {
     private String ghiChu;
     private String xepLoai;
 
+    // === MỚI: Thêm 2 trường để xử lý môn Đánh giá (Đ/KĐ) ===
+    private String loaiMon; // (Lấy từ MonHoc.LoaiMon: 'TinhDiem' hoặc 'DanhGia')
+    private String ketQuaDanhGia; // (Lấy từ Diem.KetQuaDanhGia: 'Đ' hoặc 'KĐ')
+    // ====================================================
+
     public DiemDTO() {
     }
 
@@ -166,6 +171,24 @@ public class DiemDTO {
     public void setXepLoai(String xepLoai) {
         this.xepLoai = xepLoai;
     }
+
+    // === MỚI: Getters/Setters cho 2 trường mới ===
+    public String getLoaiMon() {
+        return loaiMon;
+    }
+
+    public void setLoaiMon(String loaiMon) {
+        this.loaiMon = loaiMon;
+    }
+
+    public String getKetQuaDanhGia() {
+        return ketQuaDanhGia;
+    }
+
+    public void setKetQuaDanhGia(String ketQuaDanhGia) {
+        this.ketQuaDanhGia = ketQuaDanhGia;
+    }
+    // ===========================================
 
     @Override
     public String toString() {

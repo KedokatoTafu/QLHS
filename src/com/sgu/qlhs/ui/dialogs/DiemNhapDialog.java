@@ -26,6 +26,9 @@ import com.sgu.qlhs.dto.MonHocDTO;
 import com.sgu.qlhs.bus.NienKhoaBUS;
 import com.sgu.qlhs.dto.HocSinhDTO;
 import com.sgu.qlhs.dto.LopDTO;
+// THÊM: Import cho ComboBox Editor
+import javax.swing.table.TableCellEditor;
+import javax.swing.table.TableColumn;
 
 public class DiemNhapDialog extends JDialog {
     private final DiemBUS diemBUS = new DiemBUS();
@@ -40,18 +43,7 @@ public class DiemNhapDialog extends JDialog {
     private final JComboBox<String> cboLop = new JComboBox<>();
     private final JComboBox<String> cboMon = new JComboBox<>();
     private final JComboBox<String> cboHK = new JComboBox<>(new String[] { "HK1", "HK2" });
-    private final DefaultTableModel model = new DefaultTableModel(
-            new Object[] { "Mã HS", "Họ tên", "Miệng", "15p", "Giữa kỳ", "Cuối kỳ" }, 0) {
-        @Override
-        public boolean isCellEditable(int r, int c) {
-            return c >= 2;
-        } // chỉ cho nhập điểm
-
-        @Override
-        public Class<?> getColumnClass(int c) {
-            return c >= 2 ? Double.class : String.class;
-        }
-    };
+    private final DefaultTableModel model; // Sửa: Khai báo ở đây
 
     // make table a field so we can select rows programmatically
     private JTable tbl;
@@ -61,8 +53,36 @@ public class DiemNhapDialog extends JDialog {
     // cached logged in user for role checks
     private com.sgu.qlhs.dto.NguoiDungDTO loggedInUser;
 
+    // THÊM: Lưu loại môn đang chọn
+    private String currentLoaiMon = "TinhDiem";
+
     public DiemNhapDialog(Window owner) {
         super(owner, "Nhập điểm", ModalityType.APPLICATION_MODAL);
+
+        // THÊM: Cột "Đánh Giá"
+        model = new DefaultTableModel(
+                new Object[] { "Mã HS", "Họ tên", "Miệng", "15p", "Giữa kỳ", "Cuối kỳ", "Đánh Giá" }, 0) {
+            @Override
+            public boolean isCellEditable(int r, int c) {
+                // Dựa vào loại môn đang chọn
+                if ("TinhDiem".equals(currentLoaiMon)) {
+                    return c >= 2 && c <= 5; // Cho sửa Miệng -> Cuối kỳ
+                } else if ("DanhGia".equals(currentLoaiMon)) {
+                    return c == 6; // Chỉ cho sửa cột Đánh Giá
+                }
+                return false;
+            }
+
+            @Override
+            public Class<?> getColumnClass(int c) {
+                if (c >= 2 && c <= 5)
+                    return Double.class; // Cột điểm
+                if (c == 6)
+                    return String.class; // Cột Đánh Giá
+                return String.class; // Cột Mã HS, Họ tên
+            }
+        };
+
         setMinimumSize(new Dimension(860, 520));
         setLocationRelativeTo(owner);
         build();
@@ -72,6 +92,9 @@ public class DiemNhapDialog extends JDialog {
         loadNienKhoa();
         applyRoleRestrictions();
         pack();
+
+        // THÊM: Cập nhật hiển thị cột lần đầu
+        updateColumnVisibility();
     }
 
     /**
@@ -146,6 +169,11 @@ public class DiemNhapDialog extends JDialog {
         tbl.setRowHeight(26);
         root.add(new JScrollPane(tbl), BorderLayout.CENTER);
 
+        // THÊM: Cell Editor cho cột "Đánh Giá"
+        TableColumn danhGiaColumn = tbl.getColumnModel().getColumn(6);
+        JComboBox<String> cboDanhGiaEditor = new JComboBox<>(new String[] { "", "Đ", "KĐ" });
+        danhGiaColumn.setCellEditor(new DefaultCellEditor(cboDanhGiaEditor));
+
         // initial demo or empty until a class is selected
         // model rows will be loaded when user selects a class
 
@@ -157,12 +185,14 @@ public class DiemNhapDialog extends JDialog {
             if (__ == null) {
             }
             // map selected môn -> maMon using MonBUS
-            MonBUS monBUS = new MonBUS();
-            java.util.Map<String, Integer> monMap = new java.util.HashMap<>();
-            for (var m : monBUS.getAllMon())
-                monMap.put(m.getTenMon(), m.getMaMon());
-            Integer maMonObj = monMap.get(cboMon.getSelectedItem().toString());
-            int maMon = maMonObj == null ? 1 : maMonObj;
+            // Sửa: Dùng hàm getSelectedMaMon đa năng hơn
+            Integer maMonObj = getSelectedMaMon();
+            if (maMonObj == null) {
+                JOptionPane.showMessageDialog(this, "Vui lòng chọn môn học hợp lệ.", "Lỗi", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+            int maMon = maMonObj;
+
             int hocKy = cboHK.getSelectedIndex() + 1; // HK1 -> 1, HK2 -> 2
             int maNK = NienKhoaBUS.current();
             int selNk = cboNamHoc.getSelectedIndex();
@@ -194,14 +224,24 @@ public class DiemNhapDialog extends JDialog {
                     continue;
                 }
 
-                double mieng = valueToDouble(model.getValueAt(r, 2));
-                double p15 = valueToDouble(model.getValueAt(r, 3));
-                double gk = valueToDouble(model.getValueAt(r, 4));
-                double ck = valueToDouble(model.getValueAt(r, 5));
+                // THÊM: Lấy điểm tùy theo LoaiMon
+                double mieng = 0, p15 = 0, gk = 0, ck = 0;
+                String ketQuaDanhGia = null;
+
+                if ("TinhDiem".equals(currentLoaiMon)) {
+                    mieng = valueToDouble(model.getValueAt(r, 2));
+                    p15 = valueToDouble(model.getValueAt(r, 3));
+                    gk = valueToDouble(model.getValueAt(r, 4));
+                    ck = valueToDouble(model.getValueAt(r, 5));
+                } else {
+                    Object dgObj = model.getValueAt(r, 6);
+                    ketQuaDanhGia = (dgObj != null && !dgObj.toString().isEmpty()) ? dgObj.toString() : null;
+                }
 
                 // Call BUS to save the record (delegates to DAO internally) with permission
                 // check
-                boolean ok = diemBUS.saveOrUpdateDiem(maHS, maMon, hocKy, maNK, mieng, p15, gk, ck, nd);
+                // SỬA: Gọi hàm saveOrUpdateDiem mới
+                boolean ok = diemBUS.saveOrUpdateDiem(maHS, maMon, hocKy, maNK, mieng, p15, gk, ck, ketQuaDanhGia, nd);
                 if (!ok)
                     failedSave++;
             }
@@ -272,11 +312,12 @@ public class DiemNhapDialog extends JDialog {
                     failedDelete++;
                     continue;
                 }
-                // clear cells
+                // clear cells (Sửa: Thêm cột 6)
                 model.setValueAt(null, modelRow, 2);
                 model.setValueAt(null, modelRow, 3);
                 model.setValueAt(null, modelRow, 4);
                 model.setValueAt(null, modelRow, 5);
+                model.setValueAt(null, modelRow, 6);
             }
             if (failedDelete > 0) {
                 JOptionPane.showMessageDialog(this, "Một số hàng không được xóa do thiếu quyền.", "Chú ý",
@@ -315,13 +356,10 @@ public class DiemNhapDialog extends JDialog {
                 int hkIdx = cboHK.getSelectedIndex();
                 Integer hkParam = hkIdx >= 0 ? (hkIdx + 1) : null; // cboHK: index 0 -> HK1
                 java.util.List<Integer> monos = phanCongBUS.getDistinctMaMonByGiaoVien(nd.getId(), maNK, hkParam);
-                monList = monBUS.getAllMon();
-                for (Integer mm : monos) {
-                    for (MonHocDTO m : monList) {
-                        if (m.getMaMon() == mm) {
-                            cboMon.addItem(m.getTenMon());
-                            break;
-                        }
+                monList = monBUS.getAllMon(); // Lấy tất cả môn
+                for (MonHocDTO m : monList) { // Duyệt tất cả môn
+                    if (monos.contains(m.getMaMon())) { // Nếu GV được phân công
+                        cboMon.addItem(m.getTenMon());
                     }
                 }
                 return;
@@ -402,6 +440,9 @@ public class DiemNhapDialog extends JDialog {
         });
 
         cboMon.addActionListener(e -> {
+            // THÊM: Cập nhật LoaiMon và ẩn/hiện cột
+            updateColumnVisibility();
+
             int idx = cboLop.getSelectedIndex();
             if (idx <= 0)
                 return;
@@ -474,8 +515,10 @@ public class DiemNhapDialog extends JDialog {
 
             // make table non-editable at runtime
             if (tbl != null) {
-                tbl.setDefaultEditor(Double.class, null);
-                tbl.setDefaultEditor(String.class, null);
+                // Sửa: Vẫn cho phép editor, nhưng isCellEditable sẽ trả về false
+                // tbl.setDefaultEditor(Double.class, null);
+                // tbl.setDefaultEditor(String.class, null);
+                currentLoaiMon = "VIEW_ONLY"; // Dùng 1 giá trị đặc biệt
             }
 
             // set cboLop to the student's class and disable changing it
@@ -494,7 +537,8 @@ public class DiemNhapDialog extends JDialog {
 
                     // show only the student in the table
                     model.setRowCount(0);
-                    model.addRow(new Object[] { me.getMaHS(), me.getHoTen(), null, null, null, null });
+                    // Sửa: Thêm cột 6
+                    model.addRow(new Object[] { me.getMaHS(), me.getHoTen(), null, null, null, null, null });
 
                     // overlay existing scores for the selected subject/hk/year for this
                     // student
@@ -517,6 +561,7 @@ public class DiemNhapDialog extends JDialog {
                                         model.setValueAt(d.getDiem15p(), 0, 3);
                                         model.setValueAt(d.getDiemGiuaKy(), 0, 4);
                                         model.setValueAt(d.getDiemCuoiKy(), 0, 5);
+                                        model.setValueAt(d.getKetQuaDanhGia(), 0, 6); // Thêm
                                     }
                                     break;
                                 }
@@ -575,6 +620,60 @@ public class DiemNhapDialog extends JDialog {
         return null;
     }
 
+    // THÊM: Hàm lấy LoaiMon đang chọn
+    private String getSelectedLoaiMon() {
+        Object sel = cboMon.getSelectedItem();
+        if (sel == null)
+            return "TinhDiem";
+        String name = sel.toString();
+        for (MonHocDTO m : monList) {
+            if (m.getTenMon().equals(name))
+                return m.getLoaiMon();
+        }
+        return "TinhDiem";
+    }
+
+    // THÊM: Hàm ẩn/hiện cột
+    private void updateColumnVisibility() {
+        currentLoaiMon = getSelectedLoaiMon();
+
+        TableColumn colMieng = tbl.getColumnModel().getColumn(2);
+        TableColumn col15p = tbl.getColumnModel().getColumn(3);
+        TableColumn colGk = tbl.getColumnModel().getColumn(4);
+        TableColumn colCk = tbl.getColumnModel().getColumn(5);
+        TableColumn colDanhGia = tbl.getColumnModel().getColumn(6);
+
+        if ("TinhDiem".equals(currentLoaiMon)) {
+            // Hiện cột điểm, ẩn cột đánh giá
+            colMieng.setMinWidth(50);
+            colMieng.setMaxWidth(80);
+            col15p.setMinWidth(50);
+            col15p.setMaxWidth(80);
+            colGk.setMinWidth(50);
+            colGk.setMaxWidth(80);
+            colCk.setMinWidth(50);
+            colCk.setMaxWidth(80);
+
+            colDanhGia.setMinWidth(0);
+            colDanhGia.setMaxWidth(0);
+            colDanhGia.setPreferredWidth(0);
+        } else { // DanhGia
+            // Ẩn cột điểm, hiện cột đánh giá
+            colMieng.setMinWidth(0);
+            colMieng.setMaxWidth(0);
+            col15p.setMinWidth(0);
+            col15p.setMaxWidth(0);
+            colGk.setMinWidth(0);
+            colGk.setMaxWidth(0);
+            colCk.setMinWidth(0);
+            colCk.setMaxWidth(0);
+
+            colDanhGia.setMinWidth(80);
+            colDanhGia.setMaxWidth(150);
+            colDanhGia.setPreferredWidth(100);
+        }
+    }
+
     private void loadExistingScoresForSelection(int maLop, int maMon, int hocKy, int maNK) {
         // Use server-side filtered query to fetch only rows matching class, subject,
         // hk, nien khoa
@@ -602,11 +701,13 @@ public class DiemNhapDialog extends JDialog {
                 model.setValueAt(d.getDiem15p(), r, 3);
                 model.setValueAt(d.getDiemGiuaKy(), r, 4);
                 model.setValueAt(d.getDiemCuoiKy(), r, 5);
+                model.setValueAt(d.getKetQuaDanhGia(), r, 6); // Thêm
             } else {
                 model.setValueAt(null, r, 2);
                 model.setValueAt(null, r, 3);
                 model.setValueAt(null, r, 4);
                 model.setValueAt(null, r, 5);
+                model.setValueAt(null, r, 6); // Thêm
             }
         }
     }
@@ -617,14 +718,16 @@ public class DiemNhapDialog extends JDialog {
         if (loggedInUser != null && "hoc_sinh".equalsIgnoreCase(loggedInUser.getVaiTro())) {
             HocSinhDTO me = hocSinhBUS.getHocSinhByMaHS(loggedInUser.getId());
             if (me != null) {
-                model.addRow(new Object[] { me.getMaHS(), me.getHoTen(), null, null, null, null });
+                // Sửa: Thêm cột 6
+                model.addRow(new Object[] { me.getMaHS(), me.getHoTen(), null, null, null, null, null });
                 return;
             }
         }
 
         java.util.List<HocSinhDTO> students = hocSinhBUS.getHocSinhByMaLop(maLop);
         for (HocSinhDTO hs : students) {
-            model.addRow(new Object[] { hs.getMaHS(), hs.getHoTen(), null, null, null, null });
+            // Sửa: Thêm cột 6
+            model.addRow(new Object[] { hs.getMaHS(), hs.getHoTen(), null, null, null, null, null });
         }
     }
 

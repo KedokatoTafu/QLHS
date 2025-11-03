@@ -17,6 +17,8 @@ import com.sgu.qlhs.dto.DiemDTO;
 import com.sgu.qlhs.dto.HocSinhDTO;
 import com.sgu.qlhs.DatabaseConnection;
 import com.sgu.qlhs.bus.HanhKiemBUS;
+// IMPORT THÊM MONBUS
+import com.sgu.qlhs.bus.MonBUS;
 import com.sgu.qlhs.dto.HanhKiemDTO;
 import com.sgu.qlhs.bus.PhanCongDayBUS;
 import com.sgu.qlhs.dto.NguoiDungDTO;
@@ -31,6 +33,7 @@ import javax.swing.filechooser.FileNameExtensionFilter;
 
 /**
  * Dialog hiển thị bảng điểm chi tiết của học sinh theo định dạng chính thức
+ * (ĐÃ CẬP NHẬT ĐỂ HỖ TRỢ MÔN ĐÁNH GIÁ Đ/KĐ)
  */
 public class BangDiemChiTietDialog extends JDialog {
     private final JComboBox<String> cboHocSinh = new JComboBox<>();
@@ -47,6 +50,7 @@ public class BangDiemChiTietDialog extends JDialog {
     private int currentMaHS = -1;
     private int currentHocKy = -1;
     private int currentMaNK = -1;
+    // THAY ĐỔI: Lưu trữ DTO đầy đủ (chứa LoaiMon)
     private java.util.List<DiemDTO> currentDiemList = new java.util.ArrayList<>();
     // teacher comment area (nhận xét chung cho học sinh trong HK/NK)
     private javax.swing.JTextArea txtNhanXet;
@@ -63,6 +67,8 @@ public class BangDiemChiTietDialog extends JDialog {
     private final DiemBUS diemBUS = new DiemBUS();
     private final HanhKiemBUS hanhKiemBUS = new HanhKiemBUS();
     private final PhanCongDayBUS phanCongBUS = new PhanCongDayBUS();
+    // THÊM MONBUS
+    private final MonBUS monBUS = new MonBUS();
     // map combo index -> MaLop
     private java.util.List<Integer> lopIds = new java.util.ArrayList<>();
     private boolean suppressLopAction = false;
@@ -312,10 +318,23 @@ public class BangDiemChiTietDialog extends JDialog {
             if (currentDiemList != null && !currentDiemList.isEmpty()) {
                 for (int i = 0; i < currentDiemList.size() && i < model.getRowCount(); i++) {
                     DiemDTO dto = currentDiemList.get(i);
-                    model.setValueAt(dto.getDiemMieng(), i, 2);
-                    model.setValueAt(dto.getDiem15p(), i, 3);
-                    model.setValueAt(dto.getDiemGiuaKy(), i, 4);
-                    model.setValueAt(dto.getDiemCuoiKy(), i, 5);
+                    // THAY ĐỔI: Phục hồi dựa trên LoaiMon
+                    if ("DanhGia".equals(dto.getLoaiMon())) {
+                        model.setValueAt(null, i, 2);
+                        model.setValueAt(null, i, 3);
+                        model.setValueAt(null, i, 4);
+                        model.setValueAt(null, i, 5);
+                        model.setValueAt(dto.getKetQuaDanhGia(), i, 6); // Cột Kết quả
+                    } else {
+                        model.setValueAt(dto.getDiemMieng(), i, 2);
+                        model.setValueAt(dto.getDiem15p(), i, 3);
+                        model.setValueAt(dto.getDiemGiuaKy(), i, 4);
+                        model.setValueAt(dto.getDiemCuoiKy(), i, 5);
+                        // Tính lại TB
+                        double tb = Math.round((dto.getDiemMieng() * 0.10 + dto.getDiem15p() * 0.20 + dto.getDiemGiuaKy() * 0.30
+                                + dto.getDiemCuoiKy() * 0.40) * 10.0) / 10.0;
+                        model.setValueAt(tb, i, 6); // Cột Kết quả
+                    }
                     model.setValueAt(dto.getGhiChu() != null ? dto.getGhiChu() : "", i, 7);
                 }
             }
@@ -647,12 +666,14 @@ public class BangDiemChiTietDialog extends JDialog {
         content.add(Box.createVerticalStrut(20));
 
         // ===== BẢNG ĐIỂM =====
-        String[] columns = { "STT", "Tên môn học", "Miệng", "15 Phút", "1 Tiết", "Cuối kỳ", "TBHK", "Ghi chú" };
+        // THAY ĐỔI: Đổi tên cột "TBHK" -> "Kết quả"
+        String[] columns = { "STT", "Tên môn học", "Miệng", "15 Phút", "1 Tiết", "Cuối kỳ", "Kết quả", "Ghi chú" };
 
         // Build table rows from DiemBUS for the selected student and semester
         Object sel = cboHocSinh.getSelectedItem();
         if (sel == null) {
             // nothing selected
+            model = new DefaultTableModel(columns, 0); // tạo model rỗng
             table = new JTable(model);
         } else {
             String s = sel.toString();
@@ -684,6 +705,7 @@ public class BangDiemChiTietDialog extends JDialog {
                 // ignore
             }
 
+            // THAY ĐỔI: getDiemByMaHS giờ trả về DTO đã có LoaiMon
             java.util.List<DiemDTO> diemList = diemBUS.getDiemByMaHS(maHS, hkNum, maNK, nd);
             // store current context so Save can use it
             currentMaHS = maHS;
@@ -695,9 +717,11 @@ public class BangDiemChiTietDialog extends JDialog {
             // only if the logged-in teacher is assigned to that student's class+subject
             rowCanEditList.clear();
             boolean anyRowEditable = false;
+            // THAY ĐỔI: Cần check LoaiMon từ DTO (đã được BUS nạp)
             for (int i = 0; i < diemList.size(); i++) {
-                rowCanEditList.add(Boolean.TRUE);
+                rowCanEditList.add(Boolean.FALSE); // Khởi tạo là false
             }
+
             try {
                 com.sgu.qlhs.dto.NguoiDungDTO ndCheck = null;
                 try {
@@ -717,9 +741,9 @@ public class BangDiemChiTietDialog extends JDialog {
                         if (ok)
                             anyRowEditable = true;
                     }
-                } else {
-                    // not a teacher: all rows editable when tableEditing=true
-                    for (int i = 0; i < diemList.size(); i++)
+                } else if (ndCheck != null && "quan_tri_vien".equalsIgnoreCase(ndCheck.getVaiTro())) {
+                    // Admin được sửa tất cả
+                    for (int i = 0; i < rowCanEditList.size(); i++)
                         rowCanEditList.set(i, Boolean.TRUE);
                     anyRowEditable = true;
                 }
@@ -735,28 +759,75 @@ public class BangDiemChiTietDialog extends JDialog {
             model = new DefaultTableModel(columns, 0) {
                 @Override
                 public boolean isCellEditable(int row, int column) {
-                    // allow editing only when tableEditing true and this row is permitted
                     if (!tableEditing)
                         return false;
-                    if (!((column >= 2 && column <= 5) || column == 7))
-                        return false;
-                    if (row < 0 || row >= rowCanEditList.size())
-                        return false;
+                    // Lấy quyền edit chung của hàng này
+                    if (row < 0 || row >= rowCanEditList.size()) return false;
                     Boolean allowed = rowCanEditList.get(row);
-                    return allowed != null && allowed.booleanValue();
+                    if (allowed == null || !allowed.booleanValue()) return false;
+
+                    // Lấy LoaiMon của hàng
+                    if (row < 0 || row >= currentDiemList.size()) return false;
+                    DiemDTO dto = currentDiemList.get(row);
+                    String loaiMon = dto.getLoaiMon();
+
+                    if ("DanhGia".equals(loaiMon)) {
+                        // Môn Đánh Giá: chỉ sửa cột "Kết quả" (6) và "Ghi chú" (7)
+                        return (column == 6 || column == 7);
+                    } else {
+                        // Môn Tính Điểm: chỉ sửa cột điểm (2-5) và "Ghi chú" (7)
+                        return (column >= 2 && column <= 5) || (column == 7);
+                    }
+                }
+
+                @Override
+                public Class<?> getColumnClass(int columnIndex) {
+                    // Cột 6 (Kết quả) giờ có thể là Double (TB) hoặc String (Đ/KĐ)
+                    if (columnIndex == 6) return Object.class;
+                    if (columnIndex >= 2 && columnIndex <= 5) return Double.class;
+                    return String.class;
                 }
             };
 
+            // THAY ĐỔI: Lặp và điền dữ liệu dựa trên LoaiMon
             for (DiemDTO d : diemList) {
-                double mieng = d.getDiemMieng();
-                double p15 = d.getDiem15p();
-                double gk = d.getDiemGiuaKy();
-                double ck = d.getDiemCuoiKy();
-                double tb = Math.round((mieng * 0.10 + p15 * 0.20 + gk * 0.30 + ck * 0.40) * 10.0) / 10.0;
-                model.addRow(new Object[] { String.valueOf(idx++), d.getTenMon(), mieng, p15, gk, ck, tb,
-                        d.getGhiChu() != null ? d.getGhiChu() : "" });
+                String loaiMon = d.getLoaiMon();
+                
+                if ("DanhGia".equals(loaiMon)) {
+                    model.addRow(new Object[] {
+                            String.valueOf(idx++),
+                            d.getTenMon(),
+                            null, // Miệng
+                            null, // 15p
+                            null, // 1 Tiết
+                            null, // Cuối kỳ
+                            d.getKetQuaDanhGia(), // Kết quả (Đ/KĐ)
+                            d.getGhiChu() != null ? d.getGhiChu() : ""
+                    });
+                } else { // Mặc định là TinhDiem
+                    double mieng = d.getDiemMieng();
+                    double p15 = d.getDiem15p();
+                    double gk = d.getDiemGiuaKy();
+                    double ck = d.getDiemCuoiKy();
+                    double tb = Math.round((mieng * 0.10 + p15 * 0.20 + gk * 0.30 + ck * 0.40) * 10.0) / 10.0;
+                    model.addRow(new Object[] {
+                            String.valueOf(idx++),
+                            d.getTenMon(),
+                            mieng,
+                            p15,
+                            gk,
+                            ck,
+                            tb, // Kết quả (TB)
+                            d.getGhiChu() != null ? d.getGhiChu() : ""
+                    });
+                }
             }
             table = new JTable(model);
+            
+            // THAY ĐỔI: Thêm CellEditor cho cột "Kết quả" (6)
+            JComboBox<String> danhGiaEditor = new JComboBox<>(new String[]{"Đ", "KĐ"});
+            table.getColumnModel().getColumn(6).setCellEditor(new DefaultCellEditor(danhGiaEditor));
+
 
             // compute whether any edit is allowed for the currently loaded dataset
             boolean canEdit = (!isStudentView) && anyRowEditable;
@@ -842,6 +913,20 @@ public class BangDiemChiTietDialog extends JDialog {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected,
                     boolean hasFocus, int row, int column) {
+                
+                // THAY ĐỔI: Hiển thị rỗng cho điểm của môn Đánh Giá
+                int modelRow = -1;
+                try {
+                     modelRow = table.convertRowIndexToModel(row);
+                } catch(Exception ex) { /* ignore */ }
+
+                if (modelRow >= 0 && modelRow < currentDiemList.size()) {
+                    DiemDTO dto = currentDiemList.get(modelRow);
+                    if ("DanhGia".equals(dto.getLoaiMon()) && column >= 2 && column <= 5) {
+                        value = ""; // Hiển thị rỗng thay vì "0.0" hoặc "null"
+                    }
+                }
+                
                 Component c = centerRenderer.getTableCellRendererComponent(table, value, isSelected, hasFocus,
                         row, column);
                 // default backgrounds
@@ -850,7 +935,7 @@ public class BangDiemChiTietDialog extends JDialog {
                 Color disabledBg = new Color(245, 245, 245);
 
                 try {
-                    int modelRow = table.convertRowIndexToModel(row);
+                    // int modelRow = table.convertRowIndexToModel(row);
                     boolean canEdit = false;
                     if (modelRow >= 0 && modelRow < rowCanEditList.size()) {
                         Boolean b = rowCanEditList.get(modelRow);
@@ -859,7 +944,7 @@ public class BangDiemChiTietDialog extends JDialog {
                     if (isSelected) {
                         // keep selection color when selected
                         c.setBackground(table.getSelectionBackground());
-                    } else if (canEdit) {
+                    } else if (canEdit && tableEditing) { // Chỉ tô màu khi đang ở chế độ Sửa
                         c.setBackground(editableBg);
                     } else {
                         c.setBackground(normalBg);
@@ -888,8 +973,8 @@ public class BangDiemChiTietDialog extends JDialog {
         table.getColumnModel().getColumn(2).setPreferredWidth(60); // Miệng
         table.getColumnModel().getColumn(3).setPreferredWidth(100); // 15 phút
         table.getColumnModel().getColumn(4).setPreferredWidth(100); // 1 tiết
-        table.getColumnModel().getColumn(5).setPreferredWidth(60); // Học kỳ
-        table.getColumnModel().getColumn(6).setPreferredWidth(60); // TBHK
+        table.getColumnModel().getColumn(5).setPreferredWidth(60); // Cuối kỳ
+        table.getColumnModel().getColumn(6).setPreferredWidth(60); // Kết quả (TB/ĐKĐ)
         table.getColumnModel().getColumn(7).setPreferredWidth(100); // Ghi chú
 
         // Thêm viền cho bảng
@@ -969,22 +1054,25 @@ public class BangDiemChiTietDialog extends JDialog {
             } catch (Exception ex) {
                 // ignore
             }
-            // validation: ensure all editable score cells are numeric and between 0 and 10
+            // validation: check scores for TinhDiem subjects
             java.util.List<String> invalids = new java.util.ArrayList<>();
             for (int i = 0; i < model.getRowCount(); i++) {
-                for (int c = 2; c <= 5; c++) {
+                DiemDTO dto = currentDiemList.get(i);
+                if ("DanhGia".equals(dto.getLoaiMon())) continue; // Bỏ qua môn đánh giá
+
+                for (int c = 2; c <= 5; c++) { // Chỉ check cột điểm số
                     Object val = model.getValueAt(i, c);
                     String s = val == null ? "" : val.toString().trim();
                     if (s.isEmpty())
-                        continue; // allow empty (treated as 0)
+                        continue; // allow empty (treated as 0 by parseDoubleSafe)
                     try {
                         double v = Double.parseDouble(s);
                         if (v < 0 || v > 10) {
                             invalids.add(
-                                    String.format("Hàng %d cột %d: giá trị %.2f ngoài khoảng 0-10", i + 1, c + 1, v));
+                                    String.format("Hàng %d (%s): giá trị %.2f ngoài khoảng 0-10", i + 1, dto.getTenMon(), v));
                         }
                     } catch (NumberFormatException nfe) {
-                        invalids.add(String.format("Hàng %d cột %d: không phải số", i + 1, c + 1));
+                        invalids.add(String.format("Hàng %d (%s): không phải số", i + 1, dto.getTenMon()));
                     }
                 }
             }
@@ -1001,23 +1089,30 @@ public class BangDiemChiTietDialog extends JDialog {
             int failed = 0;
             for (int i = 0; i < model.getRowCount(); i++) {
                 // get maMon from the loaded currentDiemList (model shows name but DTO holds id)
-                int maMonId = currentDiemList.size() > i ? currentDiemList.get(i).getMaMon() : -1;
+                DiemDTO dto = currentDiemList.get(i);
+                int maMonId = dto.getMaMon();
                 if (maMonId <= 0)
                     continue;
-                double mieng = parseDoubleSafe(model.getValueAt(i, 2));
-                double p15 = parseDoubleSafe(model.getValueAt(i, 3));
-                double giuaky = parseDoubleSafe(model.getValueAt(i, 4));
-                double cuoiky = parseDoubleSafe(model.getValueAt(i, 5));
+                
+                String ghiChu = model.getValueAt(i, 7) != null ? model.getValueAt(i, 7).toString() : "";
+                boolean ok;
 
-                // read teacher note from column 7 (if present)
-                String ghiChu = "";
-                Object note = model.getValueAt(i, 7);
-                if (note != null)
-                    ghiChu = note.toString();
-
-                // delegate to BUS method that performs upsert and persists ghiChu
-                boolean ok = diemBUS.saveOrUpdateDiem(currentMaHS, maMonId, currentHocKy, currentMaNK, mieng, p15,
-                        giuaky, cuoiky, ghiChu, nd);
+                if ("DanhGia".equals(dto.getLoaiMon())) {
+                    // Lấy kết quả Đ/KĐ từ cột 6
+                    String ketQua = model.getValueAt(i, 6) != null ? model.getValueAt(i, 6).toString() : null;
+                    ok = diemBUS.saveOrUpdateDiem(currentMaHS, maMonId, currentHocKy, currentMaNK,
+                                                  null, null, null, null, ketQua, ghiChu, nd);
+                } else {
+                    // Lấy điểm số từ cột 2-5
+                    Double mieng = parseDoubleSafe(model.getValueAt(i, 2));
+                    Double p15 = parseDoubleSafe(model.getValueAt(i, 3));
+                    Double giuaky = parseDoubleSafe(model.getValueAt(i, 4));
+                    Double cuoiky = parseDoubleSafe(model.getValueAt(i, 5));
+                    
+                    ok = diemBUS.saveOrUpdateDiem(currentMaHS, maMonId, currentHocKy, currentMaNK,
+                                                  mieng, p15, giuaky, cuoiky, null, ghiChu, nd);
+                }
+                
                 if (!ok)
                     failed++;
             }
@@ -1074,11 +1169,13 @@ public class BangDiemChiTietDialog extends JDialog {
 
     private double parseDoubleSafe(Object o) {
         if (o == null)
-            return 0.0;
+            return 0.0; // Trả về 0.0 cho null
         try {
             if (o instanceof Number)
                 return ((Number) o).doubleValue();
-            return Double.parseDouble(o.toString());
+            String s = o.toString().trim();
+            if (s.isEmpty()) return 0.0; // Trả về 0.0 cho chuỗi rỗng
+            return Double.parseDouble(s);
         } catch (Exception ex) {
             return 0.0;
         }
@@ -1254,14 +1351,14 @@ public class BangDiemChiTietDialog extends JDialog {
         // body
         // so header (title, school info, student info) can be printed on every page.
         // We'll build headerPanel and bodyPanel separately above to reuse here.
-        final JPanel headerPanel = new JPanel();
-        headerPanel.setBackground(Color.WHITE);
-        headerPanel.setLayout(new BoxLayout(headerPanel, BoxLayout.Y_AXIS));
-        headerPanel.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
-        headerPanel.add(topRow);
-        headerPanel.add(title);
-        headerPanel.add(Box.createVerticalStrut(6));
-        headerPanel.add(infoRow);
+        final JPanel headerPanelPrint = new JPanel();
+        headerPanelPrint.setBackground(Color.WHITE);
+        headerPanelPrint.setLayout(new BoxLayout(headerPanelPrint, BoxLayout.Y_AXIS));
+        headerPanelPrint.setBorder(BorderFactory.createEmptyBorder(0, 0, 8, 0));
+        headerPanelPrint.add(topRow);
+        headerPanelPrint.add(title);
+        headerPanelPrint.add(Box.createVerticalStrut(6));
+        headerPanelPrint.add(infoRow);
 
         final JPanel bodyPanel = new JPanel();
         bodyPanel.setBackground(Color.WHITE);
@@ -1283,9 +1380,9 @@ public class BangDiemChiTietDialog extends JDialog {
                 double imgH = pageFormat.getImageableHeight();
 
                 // compute preferred sizes
-                headerPanel.doLayout();
+                headerPanelPrint.doLayout();
                 bodyPanel.doLayout();
-                Dimension headerPref = headerPanel.getPreferredSize();
+                Dimension headerPref = headerPanelPrint.getPreferredSize();
                 Dimension bodyPref = bodyPanel.getPreferredSize();
 
                 double px = Math.max(headerPref.getWidth(), bodyPref.getWidth());
@@ -1311,7 +1408,7 @@ public class BangDiemChiTietDialog extends JDialog {
                 g2.scale(scale, scale);
 
                 // print header at top of page (untranslated in body coordinates)
-                headerPanel.printAll(g2);
+                headerPanelPrint.printAll(g2);
 
                 // translate to beginning of body content, then offset by page index
                 g2.translate(0, headerPref.getHeight());
