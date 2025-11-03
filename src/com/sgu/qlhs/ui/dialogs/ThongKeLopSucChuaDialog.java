@@ -16,6 +16,8 @@ import java.io.*;
 import com.sgu.qlhs.bus.LopBUS;
 import com.sgu.qlhs.bus.PhongBUS;
 import com.sgu.qlhs.bus.HocSinhBUS;
+import com.sgu.qlhs.bus.PhanCongDayBUS;
+import com.sgu.qlhs.dto.NguoiDungDTO;
 import com.sgu.qlhs.dto.LopDTO;
 import com.sgu.qlhs.dto.PhongDTO;
 
@@ -56,7 +58,28 @@ public class ThongKeLopSucChuaDialog extends JDialog {
             HocSinhBUS hsBus = new HocSinhBUS();
             java.util.List<LopDTO> lops = lopBus.getAllLop();
             java.util.List<PhongDTO> phongs = phongBus.getAllPhong();
+
+            // If current user is a teacher, restrict to assigned classes
+            java.util.Set<Integer> allowedLopIds = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    NguoiDungDTO nd = md.getNguoiDung();
+                    if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                        int maNK = com.sgu.qlhs.bus.NienKhoaBUS.current();
+                        PhanCongDayBUS pBus = new PhanCongDayBUS();
+                        java.util.List<Integer> assigned = pBus.getDistinctMaLopByGiaoVien(nd.getId(), maNK, null);
+                        allowedLopIds = new java.util.HashSet<>(assigned);
+                    }
+                }
+            } catch (Exception ex) {
+                // ignore and show all
+            }
+
             for (LopDTO l : lops) {
+                if (allowedLopIds != null && !allowedLopIds.contains(l.getMaLop()))
+                    continue;
                 String tenLop = l.getTenLop();
                 String tenPhong = l.getTenPhong();
                 int siSo = hsBus.getHocSinhByMaLop(l.getMaLop()).size();

@@ -192,8 +192,46 @@ public class DiemTinhXepLoaiDialog extends JDialog {
         lops = lopBUS.getAllLop();
         cboLop.removeAllItems();
         cboLop.addItem("-- Chọn lớp --");
-        for (LopDTO l : lops)
+        // Restrict to assigned classes for teachers; if user is student show only
+        // their class
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                com.sgu.qlhs.dto.NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null) {
+                    if ("giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                        int maNK = com.sgu.qlhs.bus.NienKhoaBUS.current();
+                        com.sgu.qlhs.bus.PhanCongDayBUS pcb = new com.sgu.qlhs.bus.PhanCongDayBUS();
+                        java.util.List<Integer> assigned = pcb.getDistinctMaLopByGiaoVien(nd.getId(), maNK, null);
+                        java.util.Set<Integer> allowed = new java.util.HashSet<>(assigned);
+                        for (LopDTO l : lops) {
+                            if (allowed != null && !allowed.contains(l.getMaLop()))
+                                continue;
+                            cboLop.addItem(l.getTenLop());
+                        }
+                        return;
+                    }
+                    if ("hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                        // student: show only their class and disable selection
+                        int maHS = nd.getId();
+                        HocSinhDTO hs = hocSinhBUS.getHocSinhByMaHS(maHS);
+                        String tenLop = hs != null && hs.getTenLop() != null ? hs.getTenLop() : "-- Tất cả --";
+                        cboLop.removeAllItems();
+                        cboLop.addItem(tenLop);
+                        cboLop.setSelectedIndex(0);
+                        cboLop.setEnabled(false);
+                        return;
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            // fallback to showing all classes
+        }
+
+        for (LopDTO l : lops) {
             cboLop.addItem(l.getTenLop());
+        }
     }
 
     private void reloadForSelection() {
@@ -217,22 +255,50 @@ public class DiemTinhXepLoaiDialog extends JDialog {
 
     private void loadStudentsForLopAndMon(int maLop, int maMon, String monName, int hocKy) {
         model.setRowCount(0);
-        java.util.List<HocSinhDTO> students = hocSinhBUS.getHocSinhByMaLop(maLop);
-        for (HocSinhDTO hs : students) {
-            Double mieng = null, p15 = null, gk = null, ck = null;
-            int maNK = NienKhoaBUS.current();
-            java.util.List<DiemDTO> ds = diemBUS.getDiemByMaHS(hs.getMaHS(), hocKy, maNK);
-            for (DiemDTO d : ds) {
-                if ((d.getMaMon() != 0 && d.getMaMon() == maMon)
-                        || (d.getTenMon() != null && d.getTenMon().equalsIgnoreCase(monName))) {
-                    mieng = d.getDiemMieng();
-                    p15 = d.getDiem15p();
-                    gk = d.getDiemGiuaKy();
-                    ck = d.getDiemCuoiKy();
-                    break;
+        try {
+            // resolve current user for permission-aware reads
+            com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
                 }
+            } catch (Exception ex) {
+                // ignore
             }
-            model.addRow(new Object[] { hs.getMaHS(), hs.getHoTen(), mieng, p15, gk, ck, null });
+
+            java.util.List<HocSinhDTO> students = hocSinhBUS.getHocSinhByMaLop(maLop);
+            // if student, override to only that student
+            if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                int maHSself = nd.getId();
+                HocSinhDTO hs = hocSinhBUS.getHocSinhByMaHS(maHSself);
+                students = new java.util.ArrayList<>();
+                if (hs != null)
+                    students.add(hs);
+            }
+
+            for (HocSinhDTO hs : students) {
+                Double mieng = null, p15 = null, gk = null, ck = null;
+                int maNK = NienKhoaBUS.current();
+                java.util.List<DiemDTO> ds = diemBUS.getDiemByMaHS(hs.getMaHS(), hocKy, maNK, nd);
+                for (DiemDTO d : ds) {
+                    if ((d.getMaMon() != 0 && d.getMaMon() == maMon)
+                            || (d.getTenMon() != null && d.getTenMon().equalsIgnoreCase(monName))) {
+                        mieng = d.getDiemMieng();
+                        p15 = d.getDiem15p();
+                        gk = d.getDiemGiuaKy();
+                        ck = d.getDiemCuoiKy();
+                        break;
+                    }
+                }
+                model.addRow(new Object[] { hs.getMaHS(), hs.getHoTen(), mieng, p15, gk, ck, null });
+            }
+        } catch (Exception ex) {
+            java.util.List<HocSinhDTO> students = hocSinhBUS.getHocSinhByMaLop(maLop);
+            for (HocSinhDTO hs : students) {
+                model.addRow(new Object[] { hs.getMaHS(), hs.getHoTen(), null, null, null, null, null });
+            }
         }
     }
 

@@ -10,11 +10,14 @@ package com.sgu.qlhs.ui.dialogs;
  */
 import com.sgu.qlhs.ui.components.BarChartCanvas;
 import com.sgu.qlhs.bus.HocSinhBUS;
+import com.sgu.qlhs.bus.LopBUS;
+import com.sgu.qlhs.bus.PhanCongDayBUS;
 import com.sgu.qlhs.dto.HocSinhDTO;
+import com.sgu.qlhs.dto.NguoiDungDTO;
+import com.sgu.qlhs.dto.LopDTO;
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
-import java.util.List;
 
 public class ThongKeGioiTinhDialog extends JDialog {
     public ThongKeGioiTinhDialog(Window owner) {
@@ -29,7 +32,40 @@ public class ThongKeGioiTinhDialog extends JDialog {
         int nam = 0, nu = 0, khac = 0;
         try {
             HocSinhBUS hsBus = new HocSinhBUS();
-            List<HocSinhDTO> all = hsBus.getAllHocSinh();
+            // If current user is a teacher, restrict to students in their assigned classes
+            java.util.List<HocSinhDTO> all;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    NguoiDungDTO nd = md.getNguoiDung();
+                    if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                        int maNK = com.sgu.qlhs.bus.NienKhoaBUS.current();
+                        // get assigned class ids and map them to names
+                        PhanCongDayBUS phanCong = new PhanCongDayBUS();
+                        LopBUS lopBus = new LopBUS();
+                        java.util.List<Integer> assigned = phanCong.getDistinctMaLopByGiaoVien(nd.getId(), maNK,
+                                null);
+                        java.util.Set<String> allowedLopNames = new java.util.HashSet<>();
+                        for (Integer ml : assigned) {
+                            LopDTO l = lopBus.getLopByMa(ml);
+                            if (l != null && l.getTenLop() != null)
+                                allowedLopNames.add(l.getTenLop());
+                        }
+                        all = new java.util.ArrayList<>();
+                        for (HocSinhDTO h : hsBus.getAllHocSinh()) {
+                            if (h.getTenLop() != null && allowedLopNames.contains(h.getTenLop()))
+                                all.add(h);
+                        }
+                    } else {
+                        all = hsBus.getAllHocSinh();
+                    }
+                } else {
+                    all = hsBus.getAllHocSinh();
+                }
+            } catch (Exception ex) {
+                all = hsBus.getAllHocSinh();
+            }
             for (HocSinhDTO h : all) {
                 String g = h.getGioiTinh();
                 if (g == null)

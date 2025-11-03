@@ -8,6 +8,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import com.sgu.qlhs.database.DiemDAO;
+import com.sgu.qlhs.bus.HocSinhBUS;
+import com.sgu.qlhs.dto.HocSinhDTO;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -17,6 +19,9 @@ public class DiemBUS {
     public DiemBUS() {
         dao = new DiemDAO();
     }
+
+    // helper bus for enriching diem rows with student info when querying by MaHS
+    private final HocSinhBUS hocSinhBUS = new HocSinhBUS();
 
     public List<DiemDTO> getAllDiem() {
         List<DiemDTO> list = new ArrayList<>();
@@ -65,6 +70,16 @@ public class DiemBUS {
     public List<DiemDTO> getDiemByMaHS(int maHS, int hocKy, int maNK) {
         List<DiemDTO> list = new ArrayList<>();
         List<Object[]> rows = dao.getDiemByMaHS(maHS, hocKy, maNK);
+        // enrich with student info (maHS, hoTen, tenLop) since DAO returns columns
+        // focused on the diem row itself
+        HocSinhDTO hsInfo = null;
+        try {
+            hsInfo = hocSinhBUS.getHocSinhByMaHS(maHS);
+        } catch (Exception ex) {
+            // ignore - enrichment is best-effort
+        }
+        String hoTen = hsInfo != null ? hsInfo.getHoTen() : "";
+        String tenLop = hsInfo != null ? hsInfo.getTenLop() : "";
         for (Object[] r : rows) {
             int maDiem = (r[0] instanceof Integer) ? (Integer) r[0] : Integer.parseInt(r[0].toString());
             int maMon = (r[1] instanceof Integer) ? (Integer) r[1] : Integer.parseInt(r[1].toString());
@@ -75,6 +90,12 @@ public class DiemBUS {
             double ck = r[6] != null ? Double.parseDouble(r[6].toString()) : 0.0;
             DiemDTO d = new DiemDTO();
             d.setMaDiem(maDiem);
+            // set student/context information so presentation layer can show MaHS, HoTen,
+            // TenLop, HocKy
+            d.setMaHS(maHS);
+            d.setHoTen(hoTen);
+            d.setTenLop(tenLop);
+            d.setHocKy(hocKy);
             d.setMaMon(maMon);
             d.setTenMon(tenMon);
             d.setDiemMieng(mieng);
@@ -93,10 +114,36 @@ public class DiemBUS {
     }
 
     /**
+     * Read-side permission-aware fetch. If the calling user is a student and
+     * requests data for another student, return an empty list.
+     */
+    public List<DiemDTO> getDiemByMaHS(int maHS, int hocKy, int maNK, NguoiDungDTO user) {
+        if (user != null && "hoc_sinh".equalsIgnoreCase(user.getVaiTro())) {
+            if (user.getId() != maHS) {
+                // students may not view other students' grades
+                return new ArrayList<>();
+            }
+        }
+        return getDiemByMaHS(maHS, hocKy, maNK);
+    }
+
+    /**
      * Get teacher comment (nhận xét) for a student in a given niên khóa and học kỳ.
      */
     public String getNhanXet(int maHS, int maNK, int hocKy) {
         return dao.getNhanXet(maHS, maNK, hocKy);
+    }
+
+    /**
+     * Permission-aware getter for teacher comment. Students may only read their
+     * own comments.
+     */
+    public String getNhanXet(int maHS, int maNK, int hocKy, NguoiDungDTO user) {
+        if (user != null && "hoc_sinh".equalsIgnoreCase(user.getVaiTro())) {
+            if (user.getId() != maHS)
+                return null;
+        }
+        return getNhanXet(maHS, maNK, hocKy);
     }
 
     /**

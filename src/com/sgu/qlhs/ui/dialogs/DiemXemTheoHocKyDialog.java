@@ -92,8 +92,39 @@ public class DiemXemTheoHocKyDialog extends JDialog {
     // --- DB-backed helpers (replace previous DiemHocKyBUS methods) ---
     private List<Object[]> queryDiemTrungBinhHocKy(int hocKy, int maNK) {
         List<Object[]> result = new ArrayList<>();
-        // Use DiemBUS.getDiemFiltered to fetch all rows for the given hocKy and maNK,
-        // then aggregate DiemTB per student (MaHS).
+        // Check logged-in user: if student, show only that student's average
+        com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                nd = md.getNguoiDung();
+            }
+        } catch (Exception ex) {
+            // ignore
+        }
+        if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+            int maHS = nd.getId();
+            List<DiemDTO> rows = diemBUS.getDiemByMaHS(maHS, hocKy, maNK, nd);
+            double sum = 0;
+            int cnt = 0;
+            String name = "";
+            for (DiemDTO d : rows) {
+                name = d.getHoTen() != null ? d.getHoTen() : name;
+                sum += d.getDiemTB();
+                cnt++;
+            }
+            double avg = cnt > 0 ? round1(sum / cnt) : 0.0;
+            Object[] row = new Object[4];
+            row[0] = maHS;
+            row[1] = name;
+            row[2] = avg;
+            row[3] = xepLoai(avg);
+            result.add(row);
+            return result;
+        }
+
+        // default: aggregate for all students
         List<DiemDTO> rows = diemBUS.getDiemFiltered(null, null, hocKy, maNK, null, null);
         java.util.Map<Integer, java.util.List<Double>> m = new java.util.HashMap<>();
         java.util.Map<Integer, String> names = new java.util.HashMap<>();
@@ -121,7 +152,23 @@ public class DiemXemTheoHocKyDialog extends JDialog {
 
     private List<Object[]> queryDiemChiTietHocKy(int maLop, int hocKy, int maNK) {
         List<Object[]> result = new ArrayList<>();
-        List<DiemDTO> rows = diemBUS.getDiemFiltered(maLop, null, hocKy, maNK, null, null);
+        // Respect student view: if logged-in user is student, fetch only their rows
+        com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                nd = md.getNguoiDung();
+            }
+        } catch (Exception ex) {
+            // ignore
+        }
+        List<DiemDTO> rows;
+        if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+            rows = diemBUS.getDiemByMaHS(nd.getId(), hocKy, maNK, nd);
+        } else {
+            rows = diemBUS.getDiemFiltered(maLop, null, hocKy, maNK, null, null);
+        }
         for (DiemDTO d : rows) {
             Object[] row = new Object[8];
             row[0] = d.getMaHS();
@@ -156,9 +203,28 @@ public class DiemXemTheoHocKyDialog extends JDialog {
             System.err.println("Không lấy được trọng số năm, dùng mặc định 0.4/0.6: " + e.getMessage());
         }
 
-        // Fetch HK1 and HK2 averages per student using DiemBUS
-        List<DiemDTO> hk1rows = diemBUS.getDiemFiltered(null, null, 1, maNK, null, null);
-        List<DiemDTO> hk2rows = diemBUS.getDiemFiltered(null, null, 2, maNK, null, null);
+        // Check logged-in user: if student, fetch only that student's rows
+        com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                nd = md.getNguoiDung();
+            }
+        } catch (Exception ex) {
+            // ignore
+        }
+
+        List<DiemDTO> hk1rows;
+        List<DiemDTO> hk2rows;
+        if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+            hk1rows = diemBUS.getDiemByMaHS(nd.getId(), 1, maNK, nd);
+            hk2rows = diemBUS.getDiemByMaHS(nd.getId(), 2, maNK, nd);
+        } else {
+            // Fetch HK1 and HK2 averages per student using DiemBUS
+            hk1rows = diemBUS.getDiemFiltered(null, null, 1, maNK, null, null);
+            hk2rows = diemBUS.getDiemFiltered(null, null, 2, maNK, null, null);
+        }
 
         java.util.Map<Integer, java.util.List<Double>> map1 = new java.util.HashMap<>();
         java.util.Map<Integer, java.util.List<Double>> map2 = new java.util.HashMap<>();
@@ -315,6 +381,42 @@ public class DiemXemTheoHocKyDialog extends JDialog {
         cboLop.removeAllItems();
         cboLop.addItem("-- Tất cả --");
         lopList = lopBUS.getAllLop();
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                com.sgu.qlhs.dto.NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null) {
+                    if ("giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                        int maNK = com.sgu.qlhs.bus.NienKhoaBUS.current();
+                        com.sgu.qlhs.bus.PhanCongDayBUS pcb = new com.sgu.qlhs.bus.PhanCongDayBUS();
+                        java.util.List<Integer> assigned = pcb.getDistinctMaLopByGiaoVien(nd.getId(), maNK, null);
+                        for (LopDTO lop : lopList) {
+                            if (!assigned.contains(lop.getMaLop()))
+                                continue;
+                            String tenLop = lop.getTenLop();
+                            int khoi = lop.getKhoi();
+                            cboLop.addItem(tenLop + " (Khối " + khoi + ")");
+                        }
+                        return;
+                    }
+                    if ("hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                        // show only the student's class
+                        int maHS = nd.getId();
+                        HocSinhDTO h = hocSinhBUS.getHocSinhByMaHS(maHS);
+                        String tenLop = h != null && h.getTenLop() != null ? h.getTenLop() : "-- Tất cả --";
+                        cboLop.removeAllItems();
+                        cboLop.addItem(tenLop);
+                        cboLop.setSelectedIndex(0);
+                        cboLop.setEnabled(false);
+                        return;
+                    }
+                }
+            }
+        } catch (Exception ex) {
+            // fallback to full list
+        }
+
         for (LopDTO lop : lopList) {
             String tenLop = lop.getTenLop();
             int khoi = lop.getKhoi();

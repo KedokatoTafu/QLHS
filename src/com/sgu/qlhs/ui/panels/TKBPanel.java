@@ -66,17 +66,21 @@ public class TKBPanel extends JPanel {
         topPanel.add(cboLop);
 
         topPanel.add(new JLabel("Học kỳ:"));
-        cboHocKy = new JComboBox<>(new String[]{"HK1", "HK2"});
+        cboHocKy = new JComboBox<>(new String[] { "HK1", "HK2" });
         topPanel.add(cboHocKy);
 
         add(topPanel, BorderLayout.NORTH);
 
         // ===== Bảng Thời khóa biểu =====
-        String[] columnNames = {"Tiết", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7"};
+        String[] columnNames = { "Tiết", "Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7" };
         model = new DefaultTableModel(columnNames, 0) {
-            @Override public boolean isCellEditable(int r, int c) { return false; }
+            @Override
+            public boolean isCellEditable(int r, int c) {
+                return false;
+            }
         };
-        for (int i = 1; i <= 10; i++) model.addRow(new Object[]{"Tiết " + i, "", "", "", "", "", ""});
+        for (int i = 1; i <= 10; i++)
+            model.addRow(new Object[] { "Tiết " + i, "", "", "", "", "", "" });
 
         tblTKB = new JTable(model);
         tblTKB.setRowHeight(70);
@@ -96,9 +100,10 @@ public class TKBPanel extends JPanel {
         tblTKB.setDefaultRenderer(Object.class, new DefaultTableCellRenderer() {
             @Override
             public Component getTableCellRendererComponent(JTable table, Object value,
-                                                           boolean isSelected, boolean hasFocus,
-                                                           int row, int column) {
-                JLabel lbl = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row, column);
+                    boolean isSelected, boolean hasFocus,
+                    int row, int column) {
+                JLabel lbl = (JLabel) super.getTableCellRendererComponent(table, value, isSelected, hasFocus, row,
+                        column);
                 lbl.setHorizontalAlignment(SwingConstants.CENTER);
                 lbl.setVerticalAlignment(SwingConstants.CENTER);
                 lbl.setBorder(BorderFactory.createLineBorder(new Color(230, 230, 230)));
@@ -183,9 +188,40 @@ public class TKBPanel extends JPanel {
 
     private void loadDanhSachLop() {
         try {
+            // If current user is a student, show only their class and disable editing
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    com.sgu.qlhs.dto.NguoiDungDTO nd = md.getNguoiDung();
+                    if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                        com.sgu.qlhs.bus.HocSinhBUS hsBUS = new com.sgu.qlhs.bus.HocSinhBUS();
+                        com.sgu.qlhs.dto.HocSinhDTO hs = hsBUS.getHocSinhByMaHS(nd.getId());
+                        cboLop.removeAllItems();
+                        if (hs != null && hs.getTenLop() != null) {
+                            cboLop.addItem(hs.getTenLop());
+                        } else {
+                            cboLop.addItem("Không có lớp");
+                        }
+                        cboLop.setEnabled(false);
+                        // disable editing/import/export for students
+                        btnThem.setEnabled(false);
+                        btnSua.setEnabled(false);
+                        btnXoa.setEnabled(false);
+                        btnKhoiPhuc.setEnabled(false);
+                        btnImport.setEnabled(false);
+                        btnExport.setEnabled(false);
+                        return;
+                    }
+                }
+            } catch (Exception ex) {
+                // ignore and fall back to reading all classes
+            }
+
             List<String> dsLop = tkbBUS.getDistinctLop();
             cboLop.removeAllItems();
-            for (String tenLop : dsLop) cboLop.addItem(tenLop);
+            for (String tenLop : dsLop)
+                cboLop.addItem(tenLop);
         } catch (Exception e) {
             cboLop.addItem("Không có lớp");
         }
@@ -196,7 +232,8 @@ public class TKBPanel extends JPanel {
         try {
             String lopText = (String) cboLop.getSelectedItem();
             String hocKy = (String) cboHocKy.getSelectedItem();
-            if (lopText == null || hocKy == null) return;
+            if (lopText == null || hocKy == null)
+                return;
 
             int maLop = tkbBUS.getMaLopByTen(lopText);
             currentTkbList = tkbBUS.findByLopHocKy(maLop, hocKy);
@@ -214,12 +251,14 @@ public class TKBPanel extends JPanel {
     }
 
     private void setCell(int tiet, int thu, String text) {
-        if (tiet < 1 || tiet > 10 || thu < 2 || thu > 7) return;
+        if (tiet < 1 || tiet > 10 || thu < 2 || thu > 7)
+            return;
         model.setValueAt(text, tiet - 1, thu - 1);
     }
 
     private int dayToNumber(String thu) {
-        if (thu == null) return 0;
+        if (thu == null)
+            return 0;
         thu = thu.replace("Thứ", "").trim();
         return switch (thu) {
             case "2" -> 2;
@@ -247,8 +286,7 @@ public class TKBPanel extends JPanel {
                 new MonBUS(),
                 new GiaoVienBUS(),
                 new PhongBUS(),
-                selected
-        );
+                selected);
         dlg.setVisible(true);
         reloadData();
     }
@@ -261,7 +299,8 @@ public class TKBPanel extends JPanel {
             }
 
             DefaultListModel<ThoiKhoaBieuDTO> listModel = new DefaultListModel<>();
-            for (ThoiKhoaBieuDTO t : currentTkbList) listModel.addElement(t);
+            for (ThoiKhoaBieuDTO t : currentTkbList)
+                listModel.addElement(t);
 
             JList<ThoiKhoaBieuDTO> jList = new JList<>(listModel);
             jList.setCellRenderer((list, value, index, isSelected, cellHasFocus) -> {
@@ -270,8 +309,7 @@ public class TKBPanel extends JPanel {
                         value.getMaTKB(),
                         value.getThuTrongTuan(),
                         value.getTietBatDau(), value.getTietKetThuc(),
-                        value.getTenMon(), value.getTenPhong(), value.getTenGV()
-                ));
+                        value.getTenMon(), value.getTenPhong(), value.getTenGV()));
                 lbl.setOpaque(true);
                 lbl.setBackground(isSelected ? new Color(200, 220, 255) : Color.WHITE);
                 lbl.setBorder(new EmptyBorder(5, 8, 5, 8));

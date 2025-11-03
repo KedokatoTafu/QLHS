@@ -18,6 +18,8 @@ import com.sgu.qlhs.dto.HocSinhDTO;
 import com.sgu.qlhs.DatabaseConnection;
 import com.sgu.qlhs.bus.HanhKiemBUS;
 import com.sgu.qlhs.dto.HanhKiemDTO;
+import com.sgu.qlhs.bus.PhanCongDayBUS;
+import com.sgu.qlhs.dto.NguoiDungDTO;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -60,13 +62,20 @@ public class BangDiemChiTietDialog extends JDialog {
     private final com.sgu.qlhs.bus.LopBUS lopBUS = new com.sgu.qlhs.bus.LopBUS();
     private final DiemBUS diemBUS = new DiemBUS();
     private final HanhKiemBUS hanhKiemBUS = new HanhKiemBUS();
+    private final PhanCongDayBUS phanCongBUS = new PhanCongDayBUS();
     // map combo index -> MaLop
     private java.util.List<Integer> lopIds = new java.util.ArrayList<>();
     private boolean suppressLopAction = false;
     private boolean suppressHocSinhAction = false;
+    // student view flags (when the logged-in user is a student)
+    private boolean isStudentView = false;
+    private int loggedInStudentMaHS = -1;
     // optional initial class context (MaLop). If >=0, the dialog will try to
     // preselect it
     private int initialMaLopContext = -1;
+    // optional initial student context (MaHS). If >=0, the dialog will try to
+    // preselect that student
+    private int initialMaHS = -1;
 
     public BangDiemChiTietDialog(Window owner) {
         super(owner, "Bảng điểm chi tiết học sinh", ModalityType.APPLICATION_MODAL);
@@ -100,8 +109,46 @@ public class BangDiemChiTietDialog extends JDialog {
         }
     }
 
+    /**
+     * Pre-select a student (MaHS) when opening the dialog. Caller should
+     * construct the dialog, optionally call this, then show the dialog.
+     */
+    public void setInitialMaHS(int maHS) {
+        this.initialMaHS = maHS;
+        // ensure class and students are loaded so selection can be applied
+        try {
+            loadLop();
+        } catch (Exception ex) {
+            // ignore
+        }
+        try {
+            loadHocSinh();
+        } catch (Exception ex) {
+            // ignore
+        }
+
+        if (initialMaHS > 0) {
+            String prefix = String.valueOf(initialMaHS) + " - ";
+            for (int i = 0; i < cboHocSinh.getItemCount(); i++) {
+                Object it = cboHocSinh.getItemAt(i);
+                if (it != null && it.toString().startsWith(prefix)) {
+                    try {
+                        suppressHocSinhAction = true;
+                        cboHocSinh.setSelectedIndex(i);
+                        suppressHocSinhAction = false;
+                    } catch (Exception ex) {
+                        suppressHocSinhAction = false;
+                    }
+                    // load the report for this student immediately
+                    loadBangDiem();
+                    break;
+                }
+            }
+        }
+    }
+
     private void build() {
-        var root = new JPanel(new BorderLayout(12, 12));
+        JPanel root = new JPanel(new BorderLayout(12, 12));
         root.setBorder(new EmptyBorder(16, 16, 16, 16));
         setContentPane(root);
 
@@ -112,8 +159,8 @@ public class BangDiemChiTietDialog extends JDialog {
         toolbar.setFloatable(false);
         toolbar.setLayout(new BorderLayout());
         toolbar.setPreferredSize(new Dimension(0, 44));
-        var leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8));
-        var rightPanel = new JPanel();
+        JPanel leftPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 8));
+        JPanel rightPanel = new JPanel();
         rightPanel.setLayout(new BoxLayout(rightPanel, BoxLayout.X_AXIS));
         rightPanel.setBorder(new EmptyBorder(4, 4, 4, 4));
 
@@ -135,15 +182,15 @@ public class BangDiemChiTietDialog extends JDialog {
         leftPanel.add(new JLabel("Năm học:"));
         leftPanel.add(cboNamHoc);
 
-        var btnLoad = new JButton("Xem bảng điểm");
-        var btnEdit = new JButton("Sửa");
-        var btnSave = new JButton("Lưu");
+        JButton btnLoad = new JButton("Xem bảng điểm");
+        JButton btnEdit = new JButton("Sửa");
+        JButton btnSave = new JButton("Lưu");
         btnSave.setEnabled(false);
-        var btnCancel = new JButton("Hủy");
+        JButton btnCancel = new JButton("Hủy");
         btnCancel.setEnabled(false);
-        var btnExport = new JButton("Xuất CSV");
-        var btnPrint = new JButton("In");
-        var btnClose = new JButton("Đóng");
+        JButton btnExport = new JButton("Xuất CSV");
+        JButton btnPrint = new JButton("In");
+        JButton btnClose = new JButton("Đóng");
 
         // push buttons to the right
         rightPanel.add(Box.createHorizontalGlue());
@@ -165,12 +212,33 @@ public class BangDiemChiTietDialog extends JDialog {
         toolbar.add(rightPanel, BorderLayout.EAST);
         root.add(toolbar, BorderLayout.NORTH);
 
+        // --- Determine if current user is a student and adjust UI accordingly ---
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                    isStudentView = true;
+                    loggedInStudentMaHS = nd.getId(); // mapping assumed: NguoiDung.id -> HocSinh.MaHS
+                    // Students must not edit; they should be allowed to view and print/export their
+                    // own report
+                    btnEdit.setEnabled(false);
+                    btnSave.setEnabled(false);
+                    btnCancel.setEnabled(false);
+                    // keep btnExport/btnPrint enabled so student can export/print their own report
+                }
+            }
+        } catch (Exception ex) {
+            // ignore and keep full UI for safety
+        }
+
         // ===== PANEL HIỂN THỊ BẢNG ĐIỂM =====
         pnlBangDiem = new JPanel(new BorderLayout());
         pnlBangDiem.setBackground(Color.WHITE);
         pnlBangDiem.setBorder(BorderFactory.createLineBorder(Color.LIGHT_GRAY, 1));
 
-        var scrollPane = new JScrollPane(pnlBangDiem);
+        JScrollPane scrollPane = new JScrollPane(pnlBangDiem);
         scrollPane.getViewport().setBackground(Color.WHITE);
         root.add(scrollPane, BorderLayout.CENTER);
 
@@ -218,43 +286,55 @@ public class BangDiemChiTietDialog extends JDialog {
                     model.setValueAt(dto.getGhiChu() != null ? dto.getGhiChu() : "", i, 7);
                 }
             }
-            // revert overall teacher comment
             if (txtNhanXet != null) {
                 txtNhanXet.setText(currentNhanXet != null ? currentNhanXet : "");
                 txtNhanXet.setEditable(false);
             }
-            // revert hạnh kiểm editor selection and hide it
             if (cboHanhKiemEditor != null) {
                 try {
-                    HanhKiemDTO hk = hanhKiemBUS.getHanhKiem(currentMaHS, currentMaNK, currentHocKy);
-                    String hkStr = hk != null ? hk.getXepLoai() : null;
-                    if (hkStr != null) {
-                        cboHanhKiemEditor.setSelectedItem(hkStr);
-                    } else {
-                        cboHanhKiemEditor.setSelectedItem("Trung bình");
+                    com.sgu.qlhs.dto.NguoiDungDTO ndLocal = null;
+                    try {
+                        java.awt.Window w2 = javax.swing.SwingUtilities.getWindowAncestor(this);
+                        if (w2 instanceof com.sgu.qlhs.ui.MainDashboard) {
+                            com.sgu.qlhs.ui.MainDashboard md2 = (com.sgu.qlhs.ui.MainDashboard) w2;
+                            ndLocal = md2.getNguoiDung();
+                        }
+                    } catch (Exception ex) {
                     }
+                    HanhKiemDTO hk = hanhKiemBUS.getHanhKiem(currentMaHS, currentMaNK, currentHocKy, ndLocal);
+                    String hkStr = hk != null ? hk.getXepLoai() : null;
+                    cboHanhKiemEditor.setSelectedItem(hkStr != null ? hkStr : "Trung bình");
                 } catch (Exception ex) {
                     cboHanhKiemEditor.setSelectedItem("Trung bình");
                 }
                 cboHanhKiemEditor.setEnabled(false);
                 cboHanhKiemEditor.setVisible(false);
+
                 if (lblHanhKiemValue != null) {
                     String hkStr = "(chưa có)";
                     try {
-                        HanhKiemDTO hk = hanhKiemBUS.getHanhKiem(currentMaHS, currentMaNK, currentHocKy);
+                        com.sgu.qlhs.dto.NguoiDungDTO ndLocal2 = null;
+                        java.awt.Window w3 = javax.swing.SwingUtilities.getWindowAncestor(this);
+                        if (w3 instanceof com.sgu.qlhs.ui.MainDashboard) {
+                            com.sgu.qlhs.ui.MainDashboard md3 = (com.sgu.qlhs.ui.MainDashboard) w3;
+                            ndLocal2 = md3.getNguoiDung();
+                        }
+                        HanhKiemDTO hk = hanhKiemBUS.getHanhKiem(currentMaHS, currentMaNK, currentHocKy, ndLocal2);
                         hkStr = hk != null && hk.getXepLoai() != null ? hk.getXepLoai() : "(chưa có)";
                     } catch (Exception ex) {
-                        // ignore
                     }
                     lblHanhKiemValue.setText(hkStr);
                     lblHanhKiemValue.setVisible(true);
                 }
             }
+
             tableEditing = false;
             btnEdit.setEnabled(true);
             btnSave.setEnabled(false);
             btnCancel.setEnabled(false);
         });
+
+        // ⚡ Tách riêng listener của Export ra:
         btnExport.addActionListener(e -> exportCsv());
         btnPrint.addActionListener(e -> printBangDiem());
         btnClose.addActionListener(e -> dispose());
@@ -340,6 +420,62 @@ public class BangDiemChiTietDialog extends JDialog {
         cboLop.addItem("Tất cả");
         lopIds.add(0);
         try {
+            // If current user is teacher, show only classes from PhanCongDay for the
+            // selected Niên khóa
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                com.sgu.qlhs.dto.NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                    int maNK = com.sgu.qlhs.bus.NienKhoaBUS.current();
+                    int selNk = cboNamHoc.getSelectedIndex();
+                    if (selNk >= 0 && selNk < nienKhoaIds.size())
+                        maNK = nienKhoaIds.get(selNk);
+                    int hkIdx = cboHocKy.getSelectedIndex();
+                    Integer hkParam = hkIdx >= 0 ? (hkIdx + 1) : null;
+                    java.util.List<Integer> lopIdsAssigned = phanCongBUS.getDistinctMaLopByGiaoVien(nd.getId(), maNK,
+                            hkParam);
+                    java.util.List<com.sgu.qlhs.dto.LopDTO> list = lopBUS.getAllLop();
+                    for (com.sgu.qlhs.dto.LopDTO l : list) {
+                        if (lopIdsAssigned.contains(l.getMaLop())) {
+                            cboLop.addItem(l.getTenLop());
+                            lopIds.add(l.getMaLop());
+                        }
+                    }
+                    if (cboLop.getItemCount() > 0)
+                        cboLop.setSelectedIndex(0);
+                    return;
+                }
+                // If current user is a student, show only their class and student entry
+                if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                    try {
+                        int maHS = nd.getId();
+                        HocSinhDTO hs = hocSinhBUS.getHocSinhByMaHS(maHS);
+                        cboLop.removeAllItems();
+                        lopIds.clear();
+                        if (hs != null && hs.getTenLop() != null) {
+                            cboLop.addItem(hs.getTenLop());
+                            // HocSinhDTO does not carry MaLop id; use placeholder 0 and
+                            // short-circuit student loading elsewhere
+                            lopIds.add(0);
+                        } else {
+                            cboLop.addItem("(Không xác định)");
+                            lopIds.add(0);
+                        }
+                        cboLop.setSelectedIndex(0);
+                        cboLop.setEnabled(false);
+                        // also populate the student combo with only this student and disable it
+                        cboHocSinh.removeAllItems();
+                        String label = maHS + " - " + (hs != null ? hs.getHoTen() : "Học sinh");
+                        cboHocSinh.addItem(label);
+                        cboHocSinh.setSelectedIndex(0);
+                        cboHocSinh.setEnabled(false);
+                        return;
+                    } catch (Exception ex) {
+                        // fallback to default behavior
+                    }
+                }
+            }
             java.util.List<com.sgu.qlhs.dto.LopDTO> list = lopBUS.getAllLop();
             for (com.sgu.qlhs.dto.LopDTO l : list) {
                 cboLop.addItem(l.getTenLop());
@@ -367,6 +503,26 @@ public class BangDiemChiTietDialog extends JDialog {
         // Load students from BUS
         cboHocSinh.removeAllItems();
         suppressHocSinhAction = true;
+        // If current user is a student, show only that student and return
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                    int maHS = nd.getId();
+                    HocSinhDTO hs = hocSinhBUS.getHocSinhByMaHS(maHS);
+                    cboHocSinh.removeAllItems();
+                    cboHocSinh.addItem(maHS + " - " + (hs != null ? hs.getHoTen() : "Học sinh"));
+                    cboHocSinh.setSelectedIndex(0);
+                    cboHocSinh.setEnabled(false);
+                    suppressHocSinhAction = false;
+                    return;
+                }
+            }
+        } catch (Exception ex) {
+            // ignore and fall back to normal loading
+        }
         java.util.List<HocSinhDTO> list;
         int sel = cboLop.getSelectedIndex();
         if (sel >= 0 && sel < lopIds.size()) {
@@ -491,7 +647,19 @@ public class BangDiemChiTietDialog extends JDialog {
                 maNK = nienKhoaIds.get(selNk);
             }
 
-            java.util.List<DiemDTO> diemList = diemBUS.getDiemByMaHS(maHS, hkNum, maNK);
+            // resolve current user to enforce read-side rules
+            com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
+
+            java.util.List<DiemDTO> diemList = diemBUS.getDiemByMaHS(maHS, hkNum, maNK, nd);
             // store current context so Save can use it
             currentMaHS = maHS;
             currentHocKy = hkNum;
@@ -510,7 +678,7 @@ public class BangDiemChiTietDialog extends JDialog {
             table = new JTable(model);
 
             // ===== Hạnh kiểm =====
-            HanhKiemDTO hk = hanhKiemBUS.getHanhKiem(maHS, maNK, hkNum);
+            HanhKiemDTO hk = hanhKiemBUS.getHanhKiem(maHS, maNK, hkNum, nd);
             String hanhKiemStr = hk != null ? hk.getXepLoai() : "(chưa có)";
             JLabel lblHanhKiem = new JLabel("Hạnh kiểm: " + hanhKiemStr);
             lblHanhKiem.setFont(new Font("Arial", Font.BOLD, 13));
@@ -589,11 +757,23 @@ public class BangDiemChiTietDialog extends JDialog {
 
         // ===== NHẬN XÉT CỦA GIÁO VIÊN =====
         // Load existing nhận xét (per-student, per-NK, per-HK) and show it below the
-        // table
+        // table. Use permission-aware getter.
         String nx = "";
         if (currentMaHS != -1) {
             try {
-                String fetched = diemBUS.getNhanXet(currentMaHS, currentMaNK, currentHocKy);
+                // use the same resolved user (nd) if available; attempt to resolve again as
+                // fallback
+                com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+                try {
+                    java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                    if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                        com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                        nd = md.getNguoiDung();
+                    }
+                } catch (Exception ex) {
+                    // ignore
+                }
+                String fetched = diemBUS.getNhanXet(currentMaHS, currentMaNK, currentHocKy, nd);
                 nx = fetched != null ? fetched : "";
             } catch (Exception ex) {
                 nx = "";
@@ -884,8 +1064,18 @@ public class BangDiemChiTietDialog extends JDialog {
         printPanel.add(sp);
         printPanel.add(Box.createVerticalStrut(12));
 
-        // Hạnh kiểm and teacher comment
-        HanhKiemDTO hk = hanhKiemBUS.getHanhKiem(currentMaHS, currentMaNK, currentHocKy);
+        // Hạnh kiểm and teacher comment (permission-aware)
+        com.sgu.qlhs.dto.NguoiDungDTO ndForPrint = null;
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                ndForPrint = md.getNguoiDung();
+            }
+        } catch (Exception ex) {
+            // ignore
+        }
+        HanhKiemDTO hk = hanhKiemBUS.getHanhKiem(currentMaHS, currentMaNK, currentHocKy, ndForPrint);
         String hkStr = hk != null ? hk.getXepLoai() : "(chưa có)";
         JPanel bottomInfo = new JPanel(new BorderLayout());
         bottomInfo.setBackground(Color.WHITE);
@@ -900,7 +1090,7 @@ public class BangDiemChiTietDialog extends JDialog {
         printComment.setFont(new Font("Serif", Font.ITALIC, 12));
         String nx = "";
         try {
-            nx = diemBUS.getNhanXet(currentMaHS, currentMaNK, currentHocKy);
+            nx = diemBUS.getNhanXet(currentMaHS, currentMaNK, currentHocKy, ndForPrint);
             if (nx == null)
                 nx = "";
         } catch (Exception ex) {

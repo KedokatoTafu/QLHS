@@ -21,6 +21,7 @@ import java.sql.SQLException;
 import com.sgu.qlhs.bus.LopBUS;
 import com.sgu.qlhs.bus.HocSinhBUS;
 import com.sgu.qlhs.bus.MonBUS;
+import com.sgu.qlhs.bus.PhanCongDayBUS;
 import com.sgu.qlhs.dto.MonHocDTO;
 import com.sgu.qlhs.bus.NienKhoaBUS;
 import com.sgu.qlhs.dto.HocSinhDTO;
@@ -31,6 +32,7 @@ public class DiemNhapDialog extends JDialog {
     private final LopBUS lopBUS = new LopBUS();
     private final HocSinhBUS hocSinhBUS = new HocSinhBUS();
     private final MonBUS monBUS = new MonBUS();
+    private final PhanCongDayBUS phanCongBUS = new PhanCongDayBUS();
     // cached list of subjects for quick lookup
     private java.util.List<MonHocDTO> monList = new java.util.ArrayList<>();
     private final JComboBox<String> cboNamHoc = new JComboBox<>();
@@ -53,6 +55,11 @@ public class DiemNhapDialog extends JDialog {
 
     // make table a field so we can select rows programmatically
     private JTable tbl;
+    // expose buttons so they can be disabled for student view
+    private JButton btnSave;
+    private JButton btnDelete;
+    // cached logged in user for role checks
+    private com.sgu.qlhs.dto.NguoiDungDTO loggedInUser;
 
     public DiemNhapDialog(Window owner) {
         super(owner, "Nhập điểm", ModalityType.APPLICATION_MODAL);
@@ -63,6 +70,7 @@ public class DiemNhapDialog extends JDialog {
         loadLopData();
         // load school years (Niên khóa) into combo
         loadNienKhoa();
+        applyRoleRestrictions();
         pack();
     }
 
@@ -143,8 +151,8 @@ public class DiemNhapDialog extends JDialog {
 
         var btnPane = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         var btnClose = new JButton("Đóng");
-        var btnSave = new JButton("Lưu");
-        var btnDelete = new JButton("Xóa");
+        btnSave = new JButton("Lưu");
+        btnDelete = new JButton("Xóa");
         btnSave.addActionListener((java.awt.event.ActionEvent __) -> {
             if (__ == null) {
             }
@@ -288,6 +296,36 @@ public class DiemNhapDialog extends JDialog {
     private void loadMonData() {
         cboMon.removeAllItems();
         try {
+            // if current user is a teacher, limit subjects to PhanCongDay assignments
+            com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
+            if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                int maNK = NienKhoaBUS.current();
+                int selNk = cboNamHoc.getSelectedIndex();
+                if (selNk >= 0 && selNk < nienKhoaIds.size())
+                    maNK = nienKhoaIds.get(selNk);
+                int hkIdx = cboHK.getSelectedIndex();
+                Integer hkParam = hkIdx >= 0 ? (hkIdx + 1) : null; // cboHK: index 0 -> HK1
+                java.util.List<Integer> monos = phanCongBUS.getDistinctMaMonByGiaoVien(nd.getId(), maNK, hkParam);
+                monList = monBUS.getAllMon();
+                for (Integer mm : monos) {
+                    for (MonHocDTO m : monList) {
+                        if (m.getMaMon() == mm) {
+                            cboMon.addItem(m.getTenMon());
+                            break;
+                        }
+                    }
+                }
+                return;
+            }
             monList = monBUS.getAllMon();
             for (var m : monList) {
                 cboMon.addItem(m.getTenMon());
@@ -303,6 +341,40 @@ public class DiemNhapDialog extends JDialog {
         cboLop.removeAllItems();
         cboLop.addItem("-- Chọn lớp --");
         java.util.List<LopDTO> lops = lopBUS.getAllLop();
+
+        // if user is a teacher, filter lớp by PhanCongDay assignments for current MaNK
+        try {
+            com.sgu.qlhs.dto.NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
+            if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                int maNK = NienKhoaBUS.current();
+                int selNk = cboNamHoc.getSelectedIndex();
+                if (selNk >= 0 && selNk < nienKhoaIds.size())
+                    maNK = nienKhoaIds.get(selNk);
+                int hkIdxL = cboHK.getSelectedIndex();
+                Integer hkParamL = hkIdxL >= 0 ? (hkIdxL + 1) : null;
+                java.util.List<Integer> lopIds = phanCongBUS.getDistinctMaLopByGiaoVien(nd.getId(), maNK,
+                        hkParamL);
+                for (LopDTO l : lops) {
+                    if (lopIds.contains(l.getMaLop()))
+                        cboLop.addItem(l.getTenLop());
+                }
+                // note: we do not preload 'lops' variable differently; but cboLop now contains
+                // only teacher's classes
+                return;
+            }
+        } catch (Exception ex) {
+            // ignore and fallback to listing all classes
+        }
+
         for (LopDTO l : lops) {
             cboLop.addItem(l.getTenLop());
         }
@@ -374,6 +446,90 @@ public class DiemNhapDialog extends JDialog {
                         maNKload);
             }
         });
+    }
+
+    /** Apply UI-level restrictions based on logged-in user's role */
+    private void applyRoleRestrictions() {
+        // resolve current user (if dialog owned by MainDashboard)
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                loggedInUser = md.getNguoiDung();
+            }
+        } catch (Exception ex) {
+            // ignore
+        }
+
+        if (loggedInUser == null)
+            return;
+
+        // If logged in as student, restrict UI to view-only and their own record
+        if ("hoc_sinh".equalsIgnoreCase(loggedInUser.getVaiTro())) {
+            // disable modification controls
+            if (btnSave != null)
+                btnSave.setEnabled(false);
+            if (btnDelete != null)
+                btnDelete.setEnabled(false);
+
+            // make table non-editable at runtime
+            if (tbl != null) {
+                tbl.setDefaultEditor(Double.class, null);
+                tbl.setDefaultEditor(String.class, null);
+            }
+
+            // set cboLop to the student's class and disable changing it
+            try {
+                HocSinhDTO me = hocSinhBUS.getHocSinhByMaHS(loggedInUser.getId());
+                if (me != null && me.getTenLop() != null) {
+                    // find the index in cboLop that matches the student's class
+                    for (int i = 0; i < cboLop.getItemCount(); i++) {
+                        String item = cboLop.getItemAt(i);
+                        if (me.getTenLop().equals(item)) {
+                            cboLop.setSelectedIndex(i);
+                            break;
+                        }
+                    }
+                    cboLop.setEnabled(false);
+
+                    // show only the student in the table
+                    model.setRowCount(0);
+                    model.addRow(new Object[] { me.getMaHS(), me.getHoTen(), null, null, null, null });
+
+                    // overlay existing scores for the selected subject/hk/year for this
+                    // student
+                    Integer maMonObj = getSelectedMaMon();
+                    if (maMonObj != null) {
+                        int maNKload = NienKhoaBUS.current();
+                        int sel = cboNamHoc.getSelectedIndex();
+                        if (sel >= 0 && sel < nienKhoaIds.size())
+                            maNKload = nienKhoaIds.get(sel);
+                        try {
+                            java.util.List<com.sgu.qlhs.dto.DiemDTO> ds = diemBUS
+                                    .getDiemByMaHS(me.getMaHS(), cboHK.getSelectedIndex() + 1, maNKload,
+                                            loggedInUser);
+                            // find the matching subject and fill the single row
+                            for (com.sgu.qlhs.dto.DiemDTO d : ds) {
+                                if (d.getMaMon() == maMonObj) {
+                                    // model has one row with this student
+                                    if (model.getRowCount() > 0) {
+                                        model.setValueAt(d.getDiemMieng(), 0, 2);
+                                        model.setValueAt(d.getDiem15p(), 0, 3);
+                                        model.setValueAt(d.getDiemGiuaKy(), 0, 4);
+                                        model.setValueAt(d.getDiemCuoiKy(), 0, 5);
+                                    }
+                                    break;
+                                }
+                            }
+                        } catch (Exception ex) {
+                            // ignore overlay errors
+                        }
+                    }
+                }
+            } catch (Exception ex) {
+                // ignore any errors and keep UI safe
+            }
+        }
     }
 
     /** Load Niên khóa options from DB into cboNamHoc and nienKhoaIds */
@@ -457,6 +613,15 @@ public class DiemNhapDialog extends JDialog {
 
     private void loadStudentsForLop(int maLop) {
         model.setRowCount(0);
+        // If logged-in user is a student, only show that student regardless of maLop
+        if (loggedInUser != null && "hoc_sinh".equalsIgnoreCase(loggedInUser.getVaiTro())) {
+            HocSinhDTO me = hocSinhBUS.getHocSinhByMaHS(loggedInUser.getId());
+            if (me != null) {
+                model.addRow(new Object[] { me.getMaHS(), me.getHoTen(), null, null, null, null });
+                return;
+            }
+        }
+
         java.util.List<HocSinhDTO> students = hocSinhBUS.getHocSinhByMaLop(maLop);
         for (HocSinhDTO hs : students) {
             model.addRow(new Object[] { hs.getMaHS(), hs.getHoTen(), null, null, null, null });

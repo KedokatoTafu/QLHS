@@ -14,8 +14,7 @@ import com.sgu.qlhs.bus.LopBUS;
 import com.sgu.qlhs.bus.MonBUS;
 import com.sgu.qlhs.bus.NienKhoaBUS;
 import com.sgu.qlhs.bus.HanhKiemBUS;
-import com.sgu.qlhs.bus.ThoiKhoaBieuBUS;
-import com.sgu.qlhs.DatabaseConnection;
+import com.sgu.qlhs.bus.PhanCongDayBUS;
 import com.sgu.qlhs.dto.NguoiDungDTO;
 import com.sgu.qlhs.bus.HocSinhBUS;
 import com.sgu.qlhs.dto.HocSinhDTO;
@@ -46,13 +45,16 @@ public class DiemPanel extends JPanel {
     private final JTable table;
     private final TableRowSorter<DefaultTableModel> sorter;
     private final HanhKiemBUS hanhKiemBUS = new HanhKiemBUS();
-    private final ThoiKhoaBieuBUS tkbBUS = new ThoiKhoaBieuBUS(DatabaseConnection.getConnection());
+    private final PhanCongDayBUS phanCongBUS = new PhanCongDayBUS();
     private final HocSinhBUS hocSinhBUS = new HocSinhBUS();
     private List<LopDTO> lopList;
     private List<MonHocDTO> monList;
     // student view flags
     private boolean isStudentView = false;
     private int currentStudentMaHS = -1;
+    // whether we've resolved the logged-in user context (run once when panel is
+    // attached)
+    private boolean userContextResolved = false;
     // keep last fetched rows so popup actions can map table rows to DTOs
     private java.util.List<com.sgu.qlhs.dto.DiemDTO> currentRows = new java.util.ArrayList<>();
     // pagination
@@ -86,8 +88,12 @@ public class DiemPanel extends JPanel {
         filterBar.add(txtSearch);
         var btnFilter = new JButton("Lọc");
         var btnRefresh = new JButton("Làm mới");
+        // button to open detailed grade report dialog
+        var btnDetail = new JButton("Bảng điểm chi tiết");
         filterBar.add(btnFilter);
         filterBar.add(btnRefresh);
+        filterBar.add(Box.createHorizontalStrut(8));
+        filterBar.add(btnDetail);
         outer.add(filterBar, BorderLayout.PAGE_START);
 
         // Table model and table
@@ -232,6 +238,43 @@ public class DiemPanel extends JPanel {
             loadData();
         });
 
+        // Open detailed grade dialog for selected student (or for current student when
+        // logged-in as student)
+        btnDetail.addActionListener(e -> {
+            java.awt.Window w = null;
+            try {
+                w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            } catch (Exception ex) {
+            }
+            int targetMaHS = -1;
+            if (isStudentView && currentStudentMaHS > 0) {
+                targetMaHS = currentStudentMaHS;
+            } else {
+                int sel = table.getSelectedRow();
+                if (sel >= 0) {
+                    int modelRow = table.convertRowIndexToModel(sel);
+                    if (modelRow >= 0 && modelRow < currentRows.size()) {
+                        targetMaHS = currentRows.get(modelRow).getMaHS();
+                    }
+                }
+            }
+
+            if (targetMaHS <= 0) {
+                JOptionPane.showMessageDialog(this,
+                        "Vui lòng chọn 1 hàng học sinh trong bảng để xem bảng điểm chi tiết, hoặc đăng nhập bằng tài khoản học sinh để xem bảng điểm của chính mình.",
+                        "Chú ý", JOptionPane.INFORMATION_MESSAGE);
+                return;
+            }
+
+            com.sgu.qlhs.ui.dialogs.BangDiemChiTietDialog dlg = new com.sgu.qlhs.ui.dialogs.BangDiemChiTietDialog(w);
+            try {
+                dlg.setInitialMaHS(targetMaHS);
+            } catch (Exception ex) {
+                // ignore selection failure; dialog will still allow manual selection if
+                // permitted
+            }
+            dlg.setVisible(true);
+        });
         // quick-search on type
         txtSearch.getDocument().addDocumentListener(new javax.swing.event.DocumentListener() {
             public void changedUpdate(javax.swing.event.DocumentEvent e) {
@@ -247,35 +290,58 @@ public class DiemPanel extends JPanel {
             }
         });
 
-        // add popup menu for edit/delete
+        // add popup menu for edit/delete (listeners attached later after resolving
+        // user)
         var popup = new JPopupMenu();
         var miEdit = new JMenuItem("Sửa");
         var miDelete = new JMenuItem("Xóa");
         popup.add(miEdit);
         popup.add(miDelete);
 
-        // Attach popup only for non-student users (students have read-only view)
-        boolean attachPopup = true;
-        try {
+        // Defer resolving the logged-in user until this panel is added to a window
+        // (MainDashboard). When constructed inside MainDashboard, getWindowAncestor
+        // may be null during ctor; use a hierarchy listener to perform one-time
+        // adjustment once ancestor is available.
+        this.addHierarchyListener(evt -> {
+            if (userContextResolved)
+                return;
             java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
             if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
                 com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
                 NguoiDungDTO nd = md.getNguoiDung();
-                if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
-                    isStudentView = true;
-                    currentStudentMaHS = nd.getId(); // assume mapping NguoiDung.id -> HocSinh.MaHS
-                    attachPopup = false;
+                try {
+                    if (nd != null && "hoc_sinh".equalsIgnoreCase(nd.getVaiTro())) {
+                        // student: restrict to own class/student and disable editing/search
+                        isStudentView = true;
+                        currentStudentMaHS = nd.getId();
+                        HocSinhDTO hs = hocSinhBUS.getHocSinhByMaHS(currentStudentMaHS);
+                        String tenLop = hs != null && hs.getTenLop() != null ? hs.getTenLop() : "-- Tất cả --";
+                        cboLop.removeAllItems();
+                        cboLop.addItem(tenLop);
+                        cboLop.setSelectedIndex(0);
+                        cboLop.setEnabled(false);
+                        cboMon.setEnabled(false);
+                        txtSearch.setEnabled(false);
+                        // ensure no popup for students
+                        table.setComponentPopupMenu(null);
+                    } else {
+                        // non-student: attach popup and wire actions
+                        table.setComponentPopupMenu(popup);
+                        miDelete.addActionListener(ev -> doDeleteSelectedRows());
+                        miEdit.addActionListener(ev -> doEditSelectedRow());
+                    }
+                } catch (Exception ex) {
+                    // ignore any failures while resolving user context
                 }
-            }
-        } catch (Exception ex) {
-            // ignore and attach popup as fallback
-        }
 
-        if (attachPopup) {
-            table.setComponentPopupMenu(popup);
-            miDelete.addActionListener(e -> doDeleteSelectedRows());
-            miEdit.addActionListener(e -> doEditSelectedRow());
-        }
+                // reload filters and data using the resolved context
+                loadLopOptions();
+                loadMonOptions();
+                currentPage = 0;
+                loadData();
+                userContextResolved = true;
+            }
+        });
 
         btnPrev.addActionListener(e -> {
             if (currentPage > 0) {
@@ -300,9 +366,17 @@ public class DiemPanel extends JPanel {
                 NguoiDungDTO nd = md.getNguoiDung();
                 if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
                     // assume NguoiDung.id maps to MaGV
-                    java.util.List<String> ds = tkbBUS.getDistinctLopByGiaoVien(nd.getId());
-                    for (String tenLop : ds)
-                        cboLop.addItem(tenLop);
+                    // prefer PhanCongDay assignments (respect MaNK)
+                    int maNK = NienKhoaBUS.current();
+                    int hkIdx = cboHK.getSelectedIndex();
+                    Integer hkParam = hkIdx > 0 ? hkIdx : null;
+                    java.util.List<Integer> lopIds = phanCongBUS.getDistinctMaLopByGiaoVien(nd.getId(), maNK,
+                            hkParam);
+                    for (Integer ml : lopIds) {
+                        var l = lopBUS.getLopByMa(ml);
+                        if (l != null)
+                            cboLop.addItem(l.getTenLop());
+                    }
                     return;
                 }
                 // if student, show only their class and disable selection
@@ -336,6 +410,32 @@ public class DiemPanel extends JPanel {
     private void loadMonOptions() {
         cboMon.removeAllItems();
         cboMon.addItem("-- Tất cả --");
+        try {
+            java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+            if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                NguoiDungDTO nd = md.getNguoiDung();
+                if (nd != null && "giao_vien".equalsIgnoreCase(nd.getVaiTro())) {
+                    int maNK = NienKhoaBUS.current();
+                    int hkIdx = cboHK.getSelectedIndex();
+                    Integer hkParam = hkIdx > 0 ? hkIdx : null;
+                    java.util.List<Integer> monIds = phanCongBUS.getDistinctMaMonByGiaoVien(nd.getId(), maNK,
+                            hkParam);
+                    monList = monBUS.getAllMon();
+                    for (Integer mm : monIds) {
+                        for (MonHocDTO m : monList) {
+                            if (m.getMaMon() == mm) {
+                                cboMon.addItem(m.getTenMon());
+                                break;
+                            }
+                        }
+                    }
+                    return;
+                }
+            }
+        } catch (Exception ex) {
+            System.err.println("Lỗi lấy môn theo phân công: " + ex.getMessage());
+        }
         monList = monBUS.getAllMon();
         for (MonHocDTO m : monList) {
             cboMon.addItem(m.getTenMon());
@@ -368,12 +468,24 @@ public class DiemPanel extends JPanel {
         boolean hasNext = false;
         if (isStudentView) {
             // student view: only fetch this student's records (may be both HK1/HK2)
+            // Use permission-aware reads (pass the logged-in user) to enforce
+            // defense-in-depth
+            NguoiDungDTO nd = null;
+            try {
+                java.awt.Window w = javax.swing.SwingUtilities.getWindowAncestor(this);
+                if (w instanceof com.sgu.qlhs.ui.MainDashboard) {
+                    com.sgu.qlhs.ui.MainDashboard md = (com.sgu.qlhs.ui.MainDashboard) w;
+                    nd = md.getNguoiDung();
+                }
+            } catch (Exception ex) {
+                // ignore
+            }
             rows = new java.util.ArrayList<>();
             if (hocKy != null && hocKy > 0) {
-                rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, hocKy, maNK));
+                rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, hocKy, maNK, nd));
             } else {
-                rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, 1, maNK));
-                rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, 2, maNK));
+                rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, 1, maNK, nd));
+                rows.addAll(diemBUS.getDiemByMaHS(currentStudentMaHS, 2, maNK, nd));
             }
             // no pagination for single student view
             hasNext = false;
